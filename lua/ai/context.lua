@@ -3,9 +3,9 @@
 
 local M = {}
 local ts = vim.treesitter
-local parsers = require("nvim-treesitter.parsers")
-local queries = require("nvim-treesitter.query")
-local ts_utils = require("nvim-treesitter.ts_utils")
+local ts_utils = require('nvim-treesitter.ts_utils')
+local ts_query = vim.treesitter.query
+local parsers = require('nvim-treesitter.parsers')
 
 -- Cache for parsed contexts
 M._cache = {}
@@ -148,9 +148,13 @@ function M.extract_imports(bufnr, max_lines)
       (import_declaration) @import
     ]]
   else
-    -- Fallback: search for import-like nodes
-    for child in root:iter_children() do
-      if child:start() > max_lines then break end
+    -- Fallback: Look for common import patterns in top-level nodes
+    local children = root:named_children()
+    for _, child in ipairs(children) do
+      local start_row = child:start()
+      if start_row >= max_lines then
+        break
+      end
       
       for _, import_type in ipairs(M.node_types.import_like) do
         if child:type() == import_type then
@@ -213,89 +217,109 @@ function M.extract_documentation(node, bufnr)
   return #doc_lines > 0 and table.concat(doc_lines, "\n") or nil
 end
 
--- Get the context for the current cursor position
-function M.collect(opts)
+-- Clear cache for a buffer
+local function clear_buffer_cache(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  -- Clear all cache entries for this buffer
+  for key, _ in pairs(M._cache) do
+    if key:match("^" .. bufnr .. ":") then
+      M._cache[key] = nil
+    end
+  end
+end
+
+-- Set up cache invalidation
+vim.api.nvim_create_autocmd({"TextChanged", "TextChangedI", "TextChangedP"}, {
+  group = vim.api.nvim_create_augroup("AIContextCache", { clear = true }),
+  callback = function(args)
+    clear_buffer_cache(args.buf)
+  end,
+})
+
+-- Collect context information around cursor
+M.collect = function(opts)
   opts = opts or {}
-  local bufnr = opts.bufnr or 0
-  local max_bytes = opts.max_bytes or 8000
-  local max_lines = opts.max_lines or 200
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+  local parser = parsers.get_parser(bufnr)
   
-  -- Validate buffer
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    vim.notify("Invalid buffer", vim.log.levels.ERROR)
+  if not parser then
     return nil
   end
   
-  -- Get current node
+  local tree = parser:parse()[1]
+  local root = tree:root()
+  
+  -- Get the node at cursor for cache key
   local node = M.get_node_at_cursor()
-  if not node then 
-    vim.notify("No Tree-sitter node found at cursor position", vim.log.levels.WARN)
-    return nil 
+  if not node then
+    return {
+      language = vim.bo[bufnr].filetype,
+      current_line = vim.api.nvim_get_current_line(),
+    }
   end
   
-  -- Find enclosing function or class
-  local context_node = M.find_parent_node(
-    node,
-    vim.list_extend(M.node_types.function_like, M.node_types.class_like)
-  )
+  -- Generate cache key based on buffer, node ID, and whether we want full context
+  local cache_key = string.format("%d:%d:%s", bufnr, node:id(), opts.full and "full" or "partial")
   
-  if not context_node then
-    context_node = node
+  -- Check cache unless forced refresh
+  if not opts.force and M._cache[cache_key] then
+    return M._cache[cache_key]
   end
   
-  -- Extract context
   local context = {
-    language = parsers.get_buf_lang(bufnr),
-    filepath = vim.fn.expand("%:~"),
-    node_type = context_node:type(),
-    range = {context_node:range()},
+    language = vim.bo[bufnr].filetype,
+    current_function = nil,
+    current_class = nil,
+    imports = {},
+    local_variables = {},
+    current_line = vim.api.nvim_get_current_line(),
+    cursor_pos = vim.api.nvim_win_get_cursor(0),
+    file_path = vim.api.nvim_buf_get_name(bufnr),
   }
   
-  -- Get main content
-  local content = M.get_node_text(context_node, bufnr)
-  
-  -- Limit by lines
-  local lines = vim.split(content, "\n")
-  if #lines > max_lines then
-    lines = vim.list_slice(lines, 1, max_lines)
-    content = table.concat(lines, "\n") .. "\n... (truncated)"
+  -- Find the appropriate context node
+  local context_node = M.find_context_node(node)
+  if not context_node then
+    return context
   end
-  
-  -- Limit by bytes
-  if #content > max_bytes then
-    content = content:sub(1, max_bytes) .. "\n... (truncated)"
-  end
-  
-  context.content = content
   
   -- Extract imports
-  context.imports = M.extract_imports(bufnr)
+  context.imports = M.extract_imports(root, bufnr)
   
-  -- Extract documentation
-  context.documentation = M.extract_documentation(context_node, bufnr)
+  -- Get the text content of the context node
+  local start_row, start_col, end_row, end_col = context_node:range()
+  local lines = vim.api.nvim_buf_get_lines(bufnr, start_row, end_row + 1, false)
   
-  -- Get parent context if requested
-  if opts.include_parent then
-    local parent = context_node:parent()
-    if parent then
-      local parent_node = M.find_parent_node(
-        parent,
-        vim.list_extend(M.node_types.function_like, M.node_types.class_like)
-      )
-      if parent_node then
-        context.parent = {
-          type = parent_node:type(),
-          name = M.get_node_name(parent_node, bufnr),
-          range = {parent_node:range()},
-        }
-      end
+  -- Adjust first and last lines for partial content
+  if #lines > 0 then
+    lines[1] = lines[1]:sub(start_col + 1)
+    if #lines > 1 then
+      lines[#lines] = lines[#lines]:sub(1, end_col)
     end
   end
   
-  -- Get sibling functions/methods if requested
-  if opts.include_siblings and context_node:parent() then
+  context.content = table.concat(lines, '\n')
+  context.node_type = context_node:type()
+  context.range = {start_row, start_col, end_row, end_col}
+  
+  -- Get surrounding context if requested
+  if opts.include_siblings then
     context.siblings = M.extract_siblings(context_node, bufnr)
   end
+  
+  -- Update current function and class
+  local parent = context_node:parent()
+  while parent do
+    if vim.tbl_contains(M.node_types.function_like, parent:type()) and not context.current_function then
+      context.current_function = M.get_node_text(parent, bufnr):match("^[^\n]+")
+    elseif vim.tbl_contains(M.node_types.class_like, parent:type()) and not context.current_class then
+      context.current_class = M.get_node_text(parent, bufnr):match("^[^\n]+")
+    end
+    parent = parent:parent()
+  end
+  
+  -- Cache the context
+  M._cache[cache_key] = context
   
   return context
 end

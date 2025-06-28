@@ -657,6 +657,19 @@ function M._show_plan_window(plan, review)
   end, opts)
 end
 
+-- Mark the current plan as complete
+M.mark_complete = function()
+  if M._current_plan then
+    table.insert(M._project_plan.completed_tasks, {
+      description = M._current_plan.description or "Implementation task",
+      date = os.date("%Y-%m-%d %H:%M:%S"),
+      steps = #(M._current_plan.steps or {})
+    })
+    M._current_plan = nil
+    M.save_project_plan()
+  end
+end
+
 -- Execute a plan
 M.execute_plan = function()
   local plan = M.get_current_plan()
@@ -692,10 +705,17 @@ M.execute_plan = function()
       local edit = require('ai.edit')
       
       -- Build context for this step
-      local ctx = context.get_current_context()
+      local ctx = context.collect()
       
-      local prompt = string.format([[
-You are implementing step %d of a plan: %s
+      local prompt = {
+        {
+          role = "system",
+          content = "You are implementing a specific step from an approved plan. Generate ONLY the code changes needed, no explanations."
+        },
+        {
+          role = "user",
+          content = string.format([[
+Step %d: %s
 
 Current file: %s
 Language: %s
@@ -703,15 +723,16 @@ Language: %s
 Context:
 %s
 
-Please provide the code changes needed for this step. Be specific and complete.
-Only provide the code, no explanations.
-]], current_step, step.description, vim.fn.expand('%:p'), vim.bo.filetype, ctx)
+Please provide the code changes needed for this step.
+]], current_step, step.description, vim.fn.expand('%:p'), vim.bo.filetype, context.build_context_string(ctx))
+        }
+      }
       
-      llm.complete(prompt, function(response)
+      llm.request(prompt, { temperature = 0.1 }, function(response)
         if response then
           vim.schedule(function()
             -- Apply the changes
-            local success = edit.apply_edit(response, {
+            local success = edit.apply_patch(response, {
               validate = true,
               preview = false,  -- Don't preview during automated execution
             })

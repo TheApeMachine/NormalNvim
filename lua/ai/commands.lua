@@ -36,16 +36,14 @@ function M.setup()
   
   -- Helper function for completion
   function M._do_completion(instruction)
-    -- Check if this might be a complex task that needs planning
-    local complex_indicators = {
-      "implement", "create", "add feature", "refactor entire", 
-      "restructure", "integrate", "migrate", "convert"
-    }
-    
-    local is_complex = false
+    -- Check if this is a complex task that needs planning
     local lower_instruction = instruction:lower()
-    for _, indicator in ipairs(complex_indicators) do
-      if lower_instruction:find(indicator) then
+    local complex_keywords = {"implement", "create", "build", "design", "refactor", "migrate", "convert"}
+    local is_complex = false
+    
+    for _, keyword in ipairs(complex_keywords) do
+      -- Check if instruction starts with the keyword (ignoring whitespace)
+      if lower_instruction:match("^%s*" .. keyword) then
         is_complex = true
         break
       end
@@ -74,14 +72,14 @@ function M.setup()
     -- Show what we're doing
     vim.notify("AI: Extracting context...", vim.log.levels.INFO)
     
-    -- Use completion-specific context
-    local context_str = context.build_completion_context()
-    if not context_str or context_str == "" then
-      vim.notify("Failed to extract context", vim.log.levels.WARN)
+    -- Build context
+    local ctx = context.build_completion_context()
+    if not ctx then
+      vim.notify("AI: Cannot get context - ensure Tree-sitter parser is installed for this filetype", vim.log.levels.WARN)
       return
     end
     
-    local prompt = llm.build_completion_prompt(context_str, instruction)
+    local prompt = llm.build_completion_prompt(ctx, instruction)
     
     vim.notify("AI: Generating completion for: " .. instruction, vim.log.levels.INFO)
     
@@ -95,35 +93,18 @@ function M.setup()
       
       -- Check if we should show a preview first
       vim.schedule(function()
-        local lines = vim.split(result, "\n")
-        
-        -- For small completions, just insert with validation
-        if #lines <= 3 then
+        local cursor_line = vim.fn.line('.') - 1
+        local lines = vim.split(result, '\n')
+        local end_row = cursor_line + (#lines - 1)
+        edit.show_diff_preview(0, cursor_line, end_row, result, function()
+          -- User accepted, apply the edit
           local success, err = edit.insert_at_cursor(result)
           if success then
-            vim.notify("AI: Completion inserted", vim.log.levels.INFO)
+            vim.notify("AI: Completion applied", vim.log.levels.INFO)
           else
             vim.notify("AI: Completion failed - " .. err, vim.log.levels.ERROR)
-            -- Show the completion in a window so user can see what was attempted
-            M._show_result_window(result, "Failed Completion (Syntax Error)")
           end
-        else
-          -- For larger completions, show preview
-          local cursor_line = vim.fn.line(".") - 1
-          edit.show_diff_preview(0, 
-            cursor_line, 
-            cursor_line, 
-            result, 
-            function()
-              local success, err = edit.insert_at_cursor(result)
-              if success then
-                vim.notify("AI: Completion applied", vim.log.levels.INFO)
-              else
-                vim.notify("AI: Completion failed - " .. err, vim.log.levels.ERROR)
-              end
-            end
-          )
-        end
+        end)
       end)
     end)
   end
@@ -537,8 +518,19 @@ function M.setup()
   })
   
   -- Planning commands
-  vim.api.nvim_create_user_command("AIPlan", function(opts)
-    planner.create_plan(opts.args)
+  vim.api.nvim_create_user_command('AIPlan', function(opts)
+    local planner = require('ai.planner')
+    if opts.args == "" then
+      vim.ui.input({
+        prompt = "What would you like to implement? ",
+      }, function(input)
+        if input and input ~= "" then
+          planner.interactive_planning_session(input)
+        end
+      end)
+    else
+      planner.interactive_planning_session(opts.args)
+    end
   end, { nargs = '?', desc = 'Create an implementation plan' })
   
   vim.api.nvim_create_user_command('AIExecutePlan', function()

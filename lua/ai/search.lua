@@ -7,11 +7,26 @@ local Path = require("plenary.path")
 local context = require("ai.context")
 local config = require("ai.config")
 local parsers = require("nvim-treesitter.parsers")
+local scan = require('plenary.scandir')
 
 -- Search index storage
 M._index = {}
 M._file_hashes = {}
 M._indexing = false
+
+-- Configuration
+M.config = {
+  index_path = vim.fn.stdpath('cache') .. '/ai_search_index.json',
+  exclude_dirs = {
+    '.git', 'node_modules', '.venv', 'venv', '__pycache__', 
+    'dist', 'build', 'target', '.idea', '.vscode'
+  },
+  include_extensions = {
+    'lua', 'py', 'js', 'ts', 'jsx', 'tsx', 'go', 'rs', 
+    'c', 'cpp', 'h', 'hpp', 'java', 'cs', 'rb', 'php'
+  },
+  max_file_size = 1024 * 1024, -- 1MB
+}
 
 -- Initialize search index
 function M.initialize()
@@ -124,97 +139,58 @@ function M._extract_symbols(root, content, lang)
   return symbols
 end
 
+-- Check if a path should be excluded
+local function should_exclude(path)
+  for _, exclude in ipairs(M.config.exclude_dirs) do
+    if path:match(exclude) then
+      return true
+    end
+  end
+  return false
+end
+
+-- Check if a file should be included
+local function should_include(path)
+  local ext = path:match("%.([^%.]+)$")
+  if not ext then return false end
+  
+  for _, include_ext in ipairs(M.config.include_extensions) do
+    if ext == include_ext then
+      return true
+    end
+  end
+  return false
+end
+
 -- Index a single file
 function M.index_file(filepath)
-  -- Skip if file doesn't exist or is too large
-  if not M._should_index_file(filepath) then
-    return
+  local path = Path:new(filepath)
+  
+  -- Check file size
+  local stat = vim.loop.fs_stat(filepath)
+  if not stat or stat.size > M.config.max_file_size then
+    return nil
   end
   
   -- Read file content
-  local ok, lines = pcall(vim.fn.readfile, filepath)
-  if not ok or not lines then
-    return
+  local ok, content = pcall(path.read, path)
+  if not ok then
+    return nil
   end
   
-  local content = table.concat(lines, "\n")
+  -- Extract symbols using Tree-sitter if available
+  local symbols = M._extract_symbols(filepath, content)
   
-  -- Try to detect language from extension
-  local ext = filepath:match("%.([^%.]+)$")
-  local lang = nil
-  
-  -- Map common extensions to Tree-sitter language names
-  local ext_to_lang = {
-    lua = "lua",
-    py = "python",
-    js = "javascript",
-    ts = "typescript",
-    jsx = "javascript",
-    tsx = "typescript",
-    go = "go",
-    rs = "rust",
-    c = "c",
-    cpp = "cpp",
-    cc = "cpp",
-    cxx = "cpp",
-    h = "c",
-    hpp = "cpp",
-    java = "java",
-    rb = "ruby",
-    php = "php",
-    cs = "c_sharp",
-    swift = "swift",
-    kt = "kotlin",
-    scala = "scala",
-    r = "r",
-    m = "objc",
-    mm = "objcpp",
-    vim = "vim",
-    sh = "bash",
-    bash = "bash",
-    zsh = "bash",
-    fish = "fish",
-    ps1 = "powershell",
-    yaml = "yaml",
-    yml = "yaml",
-    json = "json",
-    toml = "toml",
-    ini = "ini",
-    conf = "conf",
-    xml = "xml",
-    html = "html",
-    css = "css",
-    scss = "scss",
-    sass = "sass",
-    less = "less"
-  }
-  
-  if ext then
-    lang = ext_to_lang[ext:lower()]
-  end
-  
-  -- Only parse if we have a known language and parser
-  local symbols = {}
-  if lang and pcall(require, "nvim-treesitter.parsers") then
-    local parser_ok, parser = pcall(vim.treesitter.get_string_parser, content, lang)
-    if parser_ok and parser then
-      local tree_ok, tree = pcall(function() return parser:parse()[1] end)
-      if tree_ok and tree then
-        local root = tree:root()
-        symbols = M._extract_symbols(root, content, lang)
-      end
-    end
-  end
-  
-  -- Store in index
-  M._index[filepath] = {
+  return {
+    path = filepath,
     content = content,
     symbols = symbols,
-    indexed_at = os.time(),
+    size = stat.size,
+    modified = stat.mtime.sec,
   }
 end
 
--- Index entire workspace
+-- Index the workspace
 function M.index_workspace(callback)
   vim.schedule(function()
     vim.notify("AI Search: Indexing workspace...", vim.log.levels.INFO)
@@ -222,59 +198,50 @@ function M.index_workspace(callback)
     M._index = {}
     M._file_cache = {}
     
-    local config_settings = config.get()
-    local exclude_patterns = config_settings.search.exclude_patterns
+    local workspace_root = vim.fn.getcwd()
+    local files_indexed = 0
     
-    -- Build find command with exclusions
-    local find_cmd = { "find", ".", "-type", "f" }
-    
-    -- Add exclusions
-    for _, pattern in ipairs(exclude_patterns) do
-      -- Convert Lua pattern to find pattern
-      if pattern:match("/$") then
-        -- Directory pattern
-        local dir = pattern:gsub("/$", ""):gsub("%%", "")
-        table.insert(find_cmd, "-not")
-        table.insert(find_cmd, "-path")
-        table.insert(find_cmd, "*/" .. dir .. "/*")
-      end
-    end
-    
-    -- Add common code file extensions
-    local extensions = {
-      "lua", "py", "js", "ts", "jsx", "tsx", "go", "rs", "c", "cpp", "h",
-      "java", "rb", "php", "cs", "swift", "kt", "scala", "r", "m", "mm",
-      "vim", "sh", "bash", "zsh", "fish", "ps1", "yaml", "yml", "json",
-      "toml", "ini", "conf", "xml", "html", "css", "scss", "sass", "less"
-    }
-    
-    table.insert(find_cmd, "(")
-    for i, ext in ipairs(extensions) do
-      if i > 1 then
-        table.insert(find_cmd, "-o")
-      end
-      table.insert(find_cmd, "-name")
-      table.insert(find_cmd, "*." .. ext)
-    end
-    table.insert(find_cmd, ")")
-    
-    local files = {}
-    local job = Job:new({
-      command = find_cmd[1],
-      args = vim.list_slice(find_cmd, 2),
-      on_stdout = function(_, line)
-        if line and line ~= "" then
-          table.insert(files, line)
+    -- Use plenary's scandir for cross-platform file scanning
+    local files = scan.scan_dir(workspace_root, {
+      hidden = false,
+      depth = 10,
+      add_dirs = false,
+      respect_gitignore = true,
+      on_insert = function(path)
+        -- Check if we should process this file
+        if should_exclude(path) then
+          return false
         end
-      end,
-      on_exit = function()
-        vim.schedule(function()
-          M.process_batch(files, 1, callback)
-        end)
+        if not should_include(path) then
+          return false
+        end
+        
+        -- Index the file
+        local file_data = M.index_file(path)
+        if file_data then
+          M._index[path] = file_data
+          files_indexed = files_indexed + 1
+          
+          -- Show progress every 100 files
+          if files_indexed % 100 == 0 then
+            vim.schedule(function()
+              vim.notify(string.format("AI Search: Indexed %d files...", files_indexed), vim.log.levels.INFO)
+            end)
+          end
+        end
+        
+        return true
       end,
     })
     
-    job:start()
+    -- Save index to cache
+    M.save_index()
+    
+    vim.schedule(function()
+      vim.notify(string.format("AI Search: Indexed %d files", files_indexed), vim.log.levels.INFO)
+      M._last_indexed = os.time()
+      if callback then callback() end
+    end)
   end)
 end
 
@@ -346,8 +313,74 @@ function M.get_stats()
   }
 end
 
--- Perform semantic search
-function M.semantic_search(query, opts)
+-- Semantic search with query understanding
+M.semantic_search = function(query, opts)
+  opts = opts or {}
+  local max_results = opts.max_results or 10
+  
+  -- For now, use enhanced keyword search
+  -- TODO: In the future, this will use embeddings
+  local results = M.keyword_search(query, opts)
+  
+  -- If we have an LLM available and few results, we can enhance the search
+  if #results < 5 and opts.use_llm then
+    local llm = require('ai.llm')
+    local context = require('ai.context')
+    
+    -- Ask LLM to expand the query
+    local prompt = {
+      {
+        role = "system",
+        content = "You are a code search assistant. Given a search query, suggest related keywords, function names, or concepts that might help find relevant code."
+      },
+      {
+        role = "user", 
+        content = string.format([[
+Search query: "%s"
+
+Suggest 3-5 alternative search terms or patterns that might help find relevant code.
+Format as a JSON array of strings.
+]], query)
+      }
+    }
+    
+    llm.request(prompt, { 
+      max_tokens = 100,
+      response_format = { type = "json_object" }
+    }, function(response)
+      if response then
+        local ok, data = pcall(vim.json.decode, response)
+        if ok and data.terms then
+          -- Search with expanded terms
+          for _, term in ipairs(data.terms) do
+            local more_results = M.keyword_search(term, opts)
+            for _, result in ipairs(more_results) do
+              -- Avoid duplicates
+              local duplicate = false
+              for _, existing in ipairs(results) do
+                if existing.file == result.file and existing.line == result.line then
+                  duplicate = true
+                  break
+                end
+              end
+              if not duplicate then
+                table.insert(results, result)
+                if #results >= max_results then
+                  break
+                end
+              end
+            end
+          end
+        end
+      end
+    end)
+  end
+  
+  return results
+end
+
+-- Keyword search (renamed from semantic_search)
+M.keyword_search = function(query, opts)
   opts = opts or {}
   
   if vim.tbl_isempty(M._index) then
@@ -418,6 +451,56 @@ function M.semantic_search(query, opts)
   end
   
   return limited_results
+end
+
+-- Save index to disk
+M.save_index = function()
+  local cache_path = M.config.index_path
+  local cache_dir = vim.fn.fnamemodify(cache_path, ':h')
+  
+  -- Ensure cache directory exists
+  vim.fn.mkdir(cache_dir, 'p')
+  
+  -- Save index
+  local ok, encoded = pcall(vim.json.encode, {
+    version = 1,
+    indexed_at = os.time(),
+    workspace = vim.fn.getcwd(),
+    index = M._index,
+  })
+  
+  if ok then
+    local file = io.open(cache_path, 'w')
+    if file then
+      file:write(encoded)
+      file:close()
+    end
+  end
+end
+
+-- Load index from disk
+M.load_index = function()
+  local cache_path = M.config.index_path
+  
+  if vim.fn.filereadable(cache_path) == 0 then
+    return false
+  end
+  
+  local file = io.open(cache_path, 'r')
+  if not file then
+    return false
+  end
+  
+  local content = file:read('*all')
+  file:close()
+  
+  local ok, data = pcall(vim.json.decode, content)
+  if ok and data and data.workspace == vim.fn.getcwd() then
+    M._index = data.index or {}
+    return true
+  end
+  
+  return false
 end
 
 return M 

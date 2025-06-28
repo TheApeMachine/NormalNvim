@@ -8,6 +8,10 @@ local config = require("ai.config")
 -- Response cache
 M._cache = {}
 M._active_requests = {}
+M._active_jobs = {}
+M._request_queue = {}
+M._max_concurrent = 3
+M._processing_queue = false
 
 -- Provider implementations
 M.providers = {}
@@ -34,16 +38,14 @@ M.providers.openai = {
       stream = false,
     }
     
-    -- Add response_format for structured outputs
+    -- Handle JSON response format
     if opts.response_format then
-      -- Handle both simple json_object and json_schema formats
       if opts.response_format.type == "json_schema" then
-        body.response_format = {
-          type = "json_schema",
-          json_schema = opts.response_format.json_schema
-        }
-      else
+        -- Use structured outputs for schema-based responses
         body.response_format = opts.response_format
+      elseif opts.response_format.type == "json_object" then
+        -- Use simple JSON mode
+        body.response_format = { type = "json_object" }
       end
     end
     
@@ -215,21 +217,49 @@ function M._generate_cache_key(provider_name, prompt, opts)
   return tostring(hash)
 end
 
--- Make an async request to the LLM
-function M.request(prompt, opts, callback)
-  opts = opts or {}
-  local provider_name = opts.provider or config.get().provider
-  local provider = M.providers[provider_name]
+-- Process queued requests
+local function process_queue()
+  if M._processing_queue or #M._request_queue == 0 then
+    return
+  end
   
-  if not provider then
-    callback(nil, "Unknown provider: " .. provider_name)
+  M._processing_queue = true
+  
+  vim.defer_fn(function()
+    while #M._request_queue > 0 and vim.tbl_count(M._active_requests) < M._max_concurrent do
+      local queued = table.remove(M._request_queue, 1)
+      if queued then
+        -- Re-attempt the request
+        M.request(queued.messages, queued.opts, queued.callback)
+      end
+    end
+    M._processing_queue = false
+  end, 100)
+end
+
+-- Make an LLM request
+M.request = function(messages, opts, callback)
+  opts = opts or {}
+  local provider = opts.provider or config.get().provider
+  
+  -- Check if we're at the concurrent limit
+  if vim.tbl_count(M._active_requests) >= M._max_concurrent then
+    -- Queue the request instead of rejecting
+    table.insert(M._request_queue, {
+      messages = messages,
+      opts = opts,
+      callback = callback,
+    })
+    vim.schedule(function()
+      vim.notify("AI: Request queued due to rate limiting. Queue size: " .. #M._request_queue, vim.log.levels.INFO)
+    end)
     return
   end
   
   -- Check cache if enabled
   local cache_key = nil
   if config.get().performance.cache_responses then
-    cache_key = M._generate_cache_key(provider_name, prompt, opts)
+    cache_key = M._generate_cache_key(provider, messages, opts)
     local cached = M._cache[cache_key]
     if cached and (os.time() - cached.time) < config.get().performance.cache_ttl_seconds then
       callback(cached.response, nil)
@@ -238,13 +268,13 @@ function M.request(prompt, opts, callback)
   end
   
   -- Prepare request
-  local request_data = provider.prepare_request(prompt, opts)
+  local request_data = M.providers[provider].prepare_request(messages, opts)
   
-  -- Check concurrent requests limit
-  if #M._active_requests >= config.get().performance.max_concurrent_requests then
-    callback(nil, "Too many concurrent requests")
-    return
-  end
+  -- Generate unique request ID
+  local request_id = tostring(os.time()) .. "_" .. tostring(math.random(1000000))
+  
+  -- Track active request and job
+  M._active_requests[request_id] = true
   
   -- Build curl command
   local curl_args = {
@@ -266,23 +296,21 @@ function M.request(prompt, opts, callback)
     command = "curl",
     args = curl_args,
     on_exit = function(j, return_val)
-      -- Remove from active requests
-      for i, req in ipairs(M._active_requests) do
-        if req == job then
-          table.remove(M._active_requests, i)
-          break
-        end
-      end
+      -- Remove from active requests and jobs
+      M._active_requests[request_id] = nil
+      M._active_jobs[request_id] = nil
       
       if return_val ~= 0 then
         vim.schedule(function()
           callback(nil, "Request failed with code: " .. return_val)
         end)
+        -- Process any queued requests
+        process_queue()
         return
       end
       
       local response = table.concat(j:result(), "\n")
-      local result, err = provider.parse_response(response)
+      local result, err = M.providers[provider].parse_response(response)
       
       if result and cache_key then
         -- Cache successful response
@@ -295,14 +323,32 @@ function M.request(prompt, opts, callback)
       vim.schedule(function()
         callback(result, err)
       end)
+      
+      -- Process any queued requests
+      process_queue()
     end,
   })
   
-  -- Track active request
-  table.insert(M._active_requests, job)
+  -- Track the job before starting
+  M._active_jobs[request_id] = job
   
   -- Start job
   job:start()
+  
+  -- Clear request on timeout
+  vim.defer_fn(function()
+    if M._active_requests[request_id] then
+      M._active_requests[request_id] = nil
+      if M._active_jobs[request_id] then
+        M._active_jobs[request_id]:shutdown()
+        M._active_jobs[request_id] = nil
+      end
+      vim.schedule(function()
+        callback(nil, "Request timeout")
+      end)
+      process_queue()
+    end
+  end, 30000) -- 30 second timeout
 end
 
 -- Synchronous request wrapper
@@ -397,10 +443,117 @@ end
 
 -- Cancel all active requests
 function M.cancel_all()
-  for _, job in ipairs(M._active_requests) do
-    job:shutdown()
+  for request_id, job in pairs(M._active_jobs) do
+    if job then
+      job:shutdown()
+    end
   end
   M._active_requests = {}
+  M._active_jobs = {}
+  M._request_queue = {}
+end
+
+-- Simple completion helper (for backward compatibility)
+M.complete = function(prompt, callback)
+  local messages = {
+    { role = "user", content = prompt }
+  }
+  return M.request(messages, {}, callback)
+end
+
+-- Make an LLM request with optional streaming
+M.request_stream = function(messages, opts, on_chunk, on_complete)
+  opts = opts or {}
+  local provider = opts.provider or config.get().provider
+  
+  -- Only OpenAI supports streaming currently
+  if provider ~= "openai" then
+    -- Fall back to regular request
+    M.request(messages, opts, function(result, err)
+      if result then
+        on_chunk(result)
+      end
+      on_complete(result, err)
+    end)
+    return
+  end
+  
+  -- Prepare streaming request
+  local request_data = M.providers[provider].prepare_request(messages, opts)
+  local body = vim.json.decode(request_data.body)
+  body.stream = true
+  request_data.body = vim.json.encode(body)
+  
+  -- Build curl command for streaming
+  local curl_args = {
+    "-sS",
+    "-N", -- No buffering for streaming
+    request_data.url,
+    "-X", "POST",
+  }
+  
+  for header, value in pairs(request_data.headers) do
+    table.insert(curl_args, "-H")
+    table.insert(curl_args, header .. ": " .. value)
+  end
+  
+  table.insert(curl_args, "-d")
+  table.insert(curl_args, request_data.body)
+  
+  local accumulated_content = ""
+  local buffer = ""
+  
+  -- Create streaming job
+  local job = Job:new({
+    command = "curl",
+    args = curl_args,
+    on_stdout = function(_, data)
+      if not data then return end
+      
+      buffer = buffer .. data
+      
+      -- Process complete SSE events
+      for line in buffer:gmatch("([^\n]*)\n") do
+        if line:match("^data: ") then
+          local json_str = line:sub(7) -- Remove "data: " prefix
+          
+          if json_str == "[DONE]" then
+            vim.schedule(function()
+              on_complete(accumulated_content, nil)
+            end)
+          else
+            local ok, chunk_data = pcall(vim.json.decode, json_str)
+            if ok and chunk_data.choices and chunk_data.choices[1] then
+              local delta = chunk_data.choices[1].delta
+              if delta and delta.content then
+                accumulated_content = accumulated_content .. delta.content
+                vim.schedule(function()
+                  on_chunk(delta.content)
+                end)
+              end
+            end
+          end
+        end
+      end
+      
+      -- Keep any incomplete line in buffer
+      local last_newline = buffer:find("\n[^\n]*$")
+      if last_newline then
+        buffer = buffer:sub(last_newline + 1)
+      end
+    end,
+    on_exit = function(j, return_val)
+      if return_val ~= 0 then
+        vim.schedule(function()
+          on_complete(nil, "Stream failed with code: " .. return_val)
+        end)
+      end
+    end,
+  })
+  
+  job:start()
+  
+  return job
 end
 
 return M 

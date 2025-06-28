@@ -95,7 +95,22 @@ M.defaults = {
     max_concurrent_requests = 2, -- Max concurrent LLM requests
     cache_responses = true,      -- Cache LLM responses
     cache_ttl_seconds = 3600,    -- Cache TTL
+    request_timeout_ms = 30000, -- 30 seconds default
   },
+  
+  -- Web search settings
+  web_search = {
+    default_provider = "duckduckgo", -- duckduckgo, google, brave
+    result_limit = 5,
+    -- API keys for search providers (can also use env vars)
+    api_keys = {
+      google = nil, -- Uses GOOGLE_API_KEY env var if nil
+      google_search_engine_id = nil, -- Uses GOOGLE_SEARCH_ENGINE_ID env var if nil
+      brave = nil, -- Uses BRAVE_API_KEY env var if nil
+    },
+  },
+  
+  -- Planning settings
 }
 
 -- Current configuration

@@ -284,7 +284,7 @@ M.collect = function(opts)
   end
   
   -- Extract imports
-  context.imports = M.extract_imports(root, bufnr)
+  context.imports = M.extract_imports(bufnr) or {}
   
   -- Get the text content of the context node
   local start_row, start_col, end_row, end_col = context_node:range()
@@ -513,6 +513,34 @@ end
 -- Clear cache
 function M.clear_cache()
   M._cache = {}
+end
+
+-- Find the most relevant context node (function, class, etc.)
+function M.find_context_node(node)
+  if not node then return nil end
+  
+  local current = node
+  
+  -- Walk up the tree to find the first function or class-like node
+  while current do
+    local node_type = current:type()
+    
+    -- Check if this is a function-like node
+    if vim.tbl_contains(M.node_types.function_like, node_type) then
+      return current
+    end
+    
+    -- Check if this is a class-like node
+    if vim.tbl_contains(M.node_types.class_like, node_type) then
+      return current
+    end
+    
+    -- Move to parent
+    current = current:parent()
+  end
+  
+  -- If no function or class found, return the original node
+  return node
 end
 
 return M 

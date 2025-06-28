@@ -219,22 +219,26 @@ end
 
 -- Process queued requests
 local function process_queue()
-  if M._processing_queue or #M._request_queue == 0 then
-    return
-  end
-  
-  M._processing_queue = true
-  
-  vim.defer_fn(function()
-    while #M._request_queue > 0 and vim.tbl_count(M._active_requests) < M._max_concurrent do
-      local queued = table.remove(M._request_queue, 1)
-      if queued then
-        -- Re-attempt the request
-        M.request(queued.messages, queued.opts, queued.callback)
+  -- Use iterative approach instead of recursion
+  while #M._request_queue > 0 and M._active_requests < M._max_concurrent do
+    local queued = table.remove(M._request_queue, 1)
+    if queued then
+      M._active_requests = M._active_requests + 1
+      
+      -- Process the queued request
+      local function on_complete(response)
+        M._active_requests = M._active_requests - 1
+        queued.callback(response)
+      end
+      
+      -- Re-submit the request
+      if queued.stream then
+        M.request_stream(queued.prompt, queued.opts, on_complete)
+      else
+        M.request(queued.prompt, queued.opts, on_complete)
       end
     end
-    M._processing_queue = false
-  end, 100)
+  end
 end
 
 -- Make an LLM request
@@ -246,9 +250,10 @@ M.request = function(messages, opts, callback)
   if vim.tbl_count(M._active_requests) >= M._max_concurrent then
     -- Queue the request instead of rejecting
     table.insert(M._request_queue, {
-      messages = messages,
+      prompt = messages,  -- Changed from 'messages' to 'prompt' for consistency
       opts = opts,
       callback = callback,
+      stream = false,
     })
     vim.schedule(function()
       vim.notify("AI: Request queued due to rate limiting. Queue size: " .. #M._request_queue, vim.log.levels.INFO)
@@ -271,7 +276,7 @@ M.request = function(messages, opts, callback)
   local request_data = M.providers[provider].prepare_request(messages, opts)
   
   -- Generate unique request ID
-  local request_id = tostring(os.time()) .. "_" .. tostring(math.random(1000000))
+  local request_id = tostring(os.time()) .. "_" .. math.random(10000)
   
   -- Track active request and job
   M._active_requests[request_id] = true
@@ -290,6 +295,8 @@ M.request = function(messages, opts, callback)
   
   table.insert(curl_args, "-d")
   table.insert(curl_args, request_data.body)
+  
+  local buffer = ""
   
   -- Create job
   local job = Job:new({
@@ -336,6 +343,7 @@ M.request = function(messages, opts, callback)
   job:start()
   
   -- Clear request on timeout
+  local timeout_ms = config.get().performance.request_timeout_ms or 30000
   vim.defer_fn(function()
     if M._active_requests[request_id] then
       M._active_requests[request_id] = nil
@@ -348,7 +356,7 @@ M.request = function(messages, opts, callback)
       end)
       process_queue()
     end
-  end, 30000) -- 30 second timeout
+  end, timeout_ms)
 end
 
 -- Synchronous request wrapper
@@ -500,6 +508,12 @@ M.request_stream = function(messages, opts, on_chunk, on_complete)
   table.insert(curl_args, "-d")
   table.insert(curl_args, request_data.body)
   
+  -- Generate unique request ID
+  local request_id = tostring(os.time()) .. "_" .. math.random(10000)
+  
+  -- Track active request
+  M._active_requests[request_id] = true
+  
   local accumulated_content = ""
   local buffer = ""
   
@@ -543,15 +557,41 @@ M.request_stream = function(messages, opts, on_chunk, on_complete)
       end
     end,
     on_exit = function(j, return_val)
+      -- Clean up tracking
+      M._active_requests[request_id] = nil
+      M._active_jobs[request_id] = nil
+      
       if return_val ~= 0 then
         vim.schedule(function()
           on_complete(nil, "Stream failed with code: " .. return_val)
         end)
       end
+      
+      -- Process any queued requests
+      process_queue()
     end,
   })
   
+  -- Track the job before starting
+  M._active_jobs[request_id] = job
+  
   job:start()
+  
+  -- Add timeout handling
+  local timeout_ms = config.get().performance.request_timeout_ms or 30000
+  vim.defer_fn(function()
+    if M._active_requests[request_id] then
+      M._active_requests[request_id] = nil
+      if M._active_jobs[request_id] then
+        M._active_jobs[request_id]:shutdown()
+        M._active_jobs[request_id] = nil
+      end
+      vim.schedule(function()
+        on_complete(nil, "Stream timeout")
+      end)
+      process_queue()
+    end
+  end, timeout_ms)
   
   return job
 end
@@ -560,28 +600,18 @@ end
 M.request_conversation = function(messages, opts, callback)
   opts = opts or {}
   
-  -- Build prompt from messages
-  local prompt = ""
-  if #messages == 1 then
-    prompt = messages[1].content
-  else
-    -- For multi-turn, format as a conversation
-    for _, msg in ipairs(messages) do
-      if msg.role == "user" then
-        prompt = prompt .. "\nUser: " .. msg.content
-      elseif msg.role == "assistant" then
-        prompt = prompt .. "\nAssistant: " .. msg.content
-      elseif msg.role == "system" then
-        prompt = prompt .. "\nSystem: " .. msg.content
-      end
-    end
-  end
-  
   -- Use streaming if requested
   if opts.stream then
-    return M.request_stream(prompt, opts, callback)
+    -- For streaming, we need both on_chunk and on_complete handlers
+    local on_chunk = callback
+    local on_complete = function(result, err)
+      -- Signal completion
+      callback(nil, true)
+    end
+    
+    return M.request_stream(messages, opts, on_chunk, on_complete)
   else
-    return M.request(prompt, opts, callback)
+    return M.request(messages, opts, callback)
   end
 end
 

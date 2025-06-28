@@ -72,6 +72,17 @@ local function parse_context_commands(message)
     cleaned_message = cleaned_message:gsub("@file:" .. filepath, "")
   end
   
+  -- @web:query - search the web
+  for query in message:gmatch("@web:([^\n]+)") do
+    -- This will be handled separately as it's async
+    table.insert(contexts, {
+      type = "web_search",
+      query = query,
+      pending = true,
+    })
+    cleaned_message = cleaned_message:gsub("@web:" .. query, "")
+  end
+  
   return cleaned_message:match("^%s*(.-)%s*$"), contexts
 end
 
@@ -103,14 +114,38 @@ end
 -- Extract code blocks from message
 local function extract_code_blocks(content)
   local blocks = {}
-  local pattern = "```(%w*)\n(.-)\n```"
+  local lines = vim.split(content, "\n")
+  local in_code_block = false
+  local current_block = nil
+  local current_line = 1
   
-  for lang, code in content:gmatch(pattern) do
-    table.insert(blocks, {
-      language = lang ~= "" and lang or "text",
-      code = code,
-      start_line = nil, -- Will be set when rendering
-    })
+  for i, line in ipairs(lines) do
+    if line:match("^```") then
+      if in_code_block then
+        -- End of code block
+        if current_block then
+          table.insert(blocks, current_block)
+          current_block = nil
+        end
+        in_code_block = false
+      else
+        -- Start of code block
+        local lang = line:match("^```(%w*)")
+        current_block = {
+          language = lang ~= "" and lang or "text",
+          code = {},
+          start_line = i + 1, -- Next line is where code starts
+        }
+        in_code_block = true
+      end
+    elseif in_code_block and current_block then
+      table.insert(current_block.code, line)
+    end
+  end
+  
+  -- Process blocks to join code lines
+  for _, block in ipairs(blocks) do
+    block.code = table.concat(block.code, "\n")
   end
   
   return blocks
@@ -232,11 +267,48 @@ M._send_message = function()
   -- Parse context commands
   local cleaned_message, contexts = parse_context_commands(message)
   
+  -- Handle web searches asynchronously
+  local pending_searches = 0
+  local search_results = {}
+  
+  for i, ctx in ipairs(contexts) do
+    if ctx.type == "web_search" and ctx.pending then
+      pending_searches = pending_searches + 1
+      
+      require('ai.websearch').search(ctx.query, {
+        limit = 3,
+        callback = function(results, err)
+          pending_searches = pending_searches - 1
+          
+          if results then
+            search_results[i] = {
+              query = ctx.query,
+              results = results,
+            }
+          end
+          
+          -- When all searches complete, continue with message
+          if pending_searches == 0 then
+            M._send_message_with_context(cleaned_message, contexts, search_results)
+          end
+        end,
+      })
+    end
+  end
+  
+  -- If no web searches, send immediately
+  if pending_searches == 0 then
+    M._send_message_with_context(cleaned_message, contexts, {})
+  end
+end
+
+-- Helper to send message after web searches complete
+M._send_message_with_context = function(cleaned_message, contexts, search_results)
   -- Build full prompt with contexts
   local full_content = cleaned_message
   if #contexts > 0 then
     full_content = full_content .. "\n\nContext:\n"
-    for _, ctx in ipairs(contexts) do
+    for i, ctx in ipairs(contexts) do
       if ctx.type == "buffer" then
         full_content = full_content .. string.format("\n[Current Buffer: %s]\n```\n%s\n```\n", 
           ctx.name, ctx.content)
@@ -245,15 +317,18 @@ M._send_message = function()
       elseif ctx.type == "file" then
         full_content = full_content .. string.format("\n[File: %s]\n```\n%s\n```\n",
           ctx.name, ctx.content)
+      elseif ctx.type == "web_search" and search_results[i] then
+        full_content = full_content .. string.format("\n[Web Search: %s]\n%s\n",
+          search_results[i].query, search_results[i].results)
       end
     end
   end
   
-  -- Add to history
+  -- Add to history (store original message for display)
   table.insert(M._chat_state.history, {
     role = "user",
-    content = message, -- Store original message for display
-    full_content = full_content, -- Store full content for API
+    content = message, -- Original message with @commands
+    full_content = full_content, -- Full content for API
   })
   
   -- Close input window
@@ -342,7 +417,8 @@ M._render_chat = function()
     if msg.role == "assistant" then
       local blocks = extract_code_blocks(msg.content)
       for _, block in ipairs(blocks) do
-        block.start_line = line_offset + block.start_line
+        -- Adjust start line based on current position in buffer
+        block.start_line = line_offset + block.start_line + 6 -- Account for headers
         table.insert(code_blocks, block)
       end
     end

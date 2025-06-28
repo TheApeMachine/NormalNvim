@@ -883,6 +883,67 @@ Provide specific, actionable feedback with examples where applicable.
   end, {
     desc = "AI: Review current code"
   })
+  
+  -- System commands
+  vim.api.nvim_create_user_command('AICancel', function()
+    require('ai.llm').cancel_all()
+    vim.notify("All AI requests cancelled", vim.log.levels.INFO)
+  end, {
+    desc = "AI: Cancel all active requests"
+  })
+  
+  -- Web search commands
+  vim.api.nvim_create_user_command('AIWebSearch', function(opts)
+    if opts.args == "" then
+      local query = vim.fn.input("Search query: ")
+      if query == "" then return end
+      opts.args = query
+    end
+    
+    require('ai.websearch').search(opts.args)
+  end, {
+    nargs = '?',
+    desc = "AI: Search the web"
+  })
+  
+  vim.api.nvim_create_user_command('AIWebSummary', function(opts)
+    if opts.args == "" then
+      local query = vim.fn.input("Search and summarize: ")
+      if query == "" then return end
+      opts.args = query
+    end
+    
+    require('ai.websearch').search_and_summarize(opts.args)
+  end, {
+    nargs = '?',
+    desc = "AI: Search web and summarize results"
+  })
+  
+  vim.api.nvim_create_user_command('AIResearch', function(opts)
+    if opts.args == "" then
+      local topic = vim.fn.input("Research topic: ")
+      if topic == "" then return end
+      opts.args = topic
+    end
+    
+    require('ai.websearch').research_topic(opts.args)
+  end, {
+    nargs = '?',
+    desc = "AI: Deep research on a topic"
+  })
+  
+  vim.api.nvim_create_user_command('AIQuery', function(opts)
+    if opts.args == "" then
+      local query = vim.fn.input("AI Query (with tool support): ")
+      if query == "" then return end
+      opts.args = query
+    end
+    
+    require('ai.tools').query_with_tools(opts.args)
+  end, {
+    nargs = '?',
+    desc = "AI: Query with access to web search and tools"
+  })
 end
 
 -- Show results in a floating window

@@ -19,6 +19,8 @@ local modules = {
   'ai.multifile',
   'ai.testing',
   'ai.debug',
+  'ai.websearch',
+  'ai.tools',
 }
 
 for _, module in ipairs(modules) do
@@ -41,6 +43,8 @@ M.chat = require('ai.chat')
 M.multifile = require('ai.multifile')
 M.testing = require('ai.testing')
 M.debug = require('ai.debug')
+M.websearch = require('ai.websearch')
+M.tools = require('ai.tools')
 M.commands = require('ai.commands')
 
 -- Initialize the module

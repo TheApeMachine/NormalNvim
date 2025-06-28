@@ -38,11 +38,12 @@ A Tree-sitter powered AI coding assistant that brings intelligent code completio
 
 ### 🔍 Code Search
 
-- **Keyword search** across workspace
+- **Semantic search with embeddings** (OpenAI)
+- **Keyword search** (all providers)
 - Symbol extraction (functions, classes, etc.)
 - Cross-platform file scanning
 - Configurable file filters
-- *Semantic search planned for future release*
+- Similarity-based code discovery
 
 ### 📋 AI Planning System
 
@@ -172,6 +173,9 @@ require('ai').setup({
     exclude_dirs = {'.git', 'node_modules', 'dist'},
     include_extensions = {'lua', 'py', 'js', 'ts', 'go'},
     max_file_size = 1024 * 1024, -- 1MB
+    use_embeddings = true,
+    embedding_model = "text-embedding-3-small", -- or "text-embedding-3-large"
+    embedding_dimensions = 512, -- Lower = faster/cheaper, Higher = better quality
   },
 })
 ```
@@ -215,3 +219,83 @@ The AI assistant is modular and extensible:
 ## License
 
 MIT
+
+## Semantic Search with Embeddings
+
+The AI assistant supports true semantic search using OpenAI's latest embedding models. This allows you to search for code by meaning, not just keywords.
+
+### Embedding Models
+
+We use OpenAI's newest embedding models (released January 2024):
+
+- **text-embedding-3-small** (default): 
+  - 5x cheaper than ada-002 ($0.02 per 1M tokens)
+  - Higher quality embeddings
+  - Configurable dimensions (256-1536)
+  - Default: 512 dimensions for balance of quality/speed
+
+- **text-embedding-3-large**: 
+  - Best quality available
+  - Configurable dimensions (256-3072)
+  - Use for critical search accuracy
+
+### Configuration
+
+```lua
+search = {
+  use_embeddings = true,
+  embedding_model = "text-embedding-3-small", -- or "text-embedding-3-large"
+  embedding_dimensions = 512, -- Lower = faster/cheaper, Higher = better quality
+}
+```
+
+### How it Works
+
+1. **Code Chunking**: Files are intelligently split into semantic chunks (functions, classes) using Tree-sitter
+2. **Embedding Generation**: Each chunk is converted to a vector embedding using the configured model
+3. **Similarity Search**: Your query is embedded and compared against all code chunks using cosine similarity
+4. **Smart Results**: Results are ranked by semantic similarity, with keyword search as fallback
+
+### Enabling Embeddings
+
+```vim
+" Enable embeddings-based search
+:AIEnableEmbeddings
+
+" Re-index workspace with embeddings (required after enabling)
+:AIIndexWorkspace
+
+" Search semantically
+:AISearch how to handle user authentication
+```
+
+### Performance Benefits
+
+The new models offer significant improvements:
+
+- **5x cost reduction**: text-embedding-3-small costs $0.02 per 1M tokens (vs $0.10 for ada-002)
+- **Better accuracy**: Improved embedding quality for code understanding
+- **Flexible dimensions**: Reduce dimensions to save storage and improve speed
+- **Larger context**: Supports up to 8,191 tokens per embedding
+
+### Dimension Trade-offs
+
+| Dimensions | Quality | Speed | Storage | Use Case |
+|------------|---------|-------|---------|----------|
+| 256 | Good | Fastest | Smallest | Quick searches, large codebases |
+| 512 | Better | Fast | Small | Default, balanced performance |
+| 1024 | Best | Moderate | Moderate | High accuracy needed |
+| 1536/3072 | Maximum | Slower | Larger | Critical search accuracy |
+
+### Performance Considerations
+
+- Initial indexing with embeddings takes longer (processes files in batches)
+- Embeddings are cached locally in `~/.cache/nvim/ai_embeddings.json`
+- Each file generates multiple embeddings (one per function/class)
+- API costs are very low: ~$0.00002 per file with the new models
+
+### Fallback Behavior
+
+- If OpenAI is not available, falls back to n-gram based embeddings (less accurate but works offline)
+- If no embeddings exist, falls back to keyword search
+- Keyword results supplement semantic results when needed

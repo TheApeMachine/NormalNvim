@@ -206,16 +206,103 @@ function M.setup()
   
   -- Search commands
   vim.api.nvim_create_user_command("AISearch", function(args)
-    if args.args == "" then
-      vim.notify("Usage: :AISearch <query>", vim.log.levels.ERROR)
+    local search = require("ai.search")
+    local query = args.args
+    
+    if query == "" then
+      vim.ui.input({
+        prompt = "Search query: ",
+      }, function(input)
+        if input and input ~= "" then
+          M._do_search(input)
+        end
+      end)
+    else
+      M._do_search(query)
+    end
+  end, {
+    desc = "AI: Search codebase",
+    nargs = "?",
+  })
+  
+  vim.api.nvim_create_user_command("AIEnableEmbeddings", function()
+    local config = require("ai.config")
+    local current = config.get()
+    current.search.use_embeddings = true
+    vim.notify("AI: Embeddings-based search enabled. Re-index to generate embeddings.", vim.log.levels.INFO)
+  end, {
+    desc = "AI: Enable embeddings-based search",
+  })
+  
+  vim.api.nvim_create_user_command("AIDisableEmbeddings", function()
+    local config = require("ai.config")
+    local current = config.get()
+    current.search.use_embeddings = false
+    vim.notify("AI: Embeddings-based search disabled. Using keyword search.", vim.log.levels.INFO)
+  end, {
+    desc = "AI: Disable embeddings-based search",
+  })
+  
+  vim.api.nvim_create_user_command("AISetEmbeddingDimensions", function(args)
+    local config = require("ai.config")
+    local dimensions = tonumber(args.args)
+    
+    if not dimensions then
+      vim.notify("AI: Invalid dimensions. Usage: :AISetEmbeddingDimensions <number>", vim.log.levels.ERROR)
       return
     end
     
-    local results = search.search(args.args)
-    M._show_search_results(results, args.args)
+    local current = config.get()
+    local model = current.search.embedding_model
+    local max_dims = model == "text-embedding-3-large" and 3072 or 1536
+    
+    if dimensions < 256 or dimensions > max_dims then
+      vim.notify(string.format("AI: Dimensions must be between 256 and %d for model %s", max_dims, model), vim.log.levels.ERROR)
+      return
+    end
+    
+    current.search.embedding_dimensions = dimensions
+    vim.notify(string.format("AI: Embedding dimensions set to %d. Re-index to apply changes.", dimensions), vim.log.levels.INFO)
   end, {
-    desc = "AI: Search codebase",
-    nargs = "+",
+    desc = "AI: Set embedding dimensions",
+    nargs = 1,
+  })
+  
+  vim.api.nvim_create_user_command("AISetEmbeddingModel", function(args)
+    local config = require("ai.config")
+    local model = args.args
+    
+    if model ~= "text-embedding-3-small" and model ~= "text-embedding-3-large" then
+      vim.notify("AI: Invalid model. Use 'text-embedding-3-small' or 'text-embedding-3-large'", vim.log.levels.ERROR)
+      return
+    end
+    
+    local current = config.get()
+    current.search.embedding_model = model
+    
+    -- Adjust dimensions if needed
+    local max_dims = model == "text-embedding-3-large" and 3072 or 1536
+    if current.search.embedding_dimensions > max_dims then
+      current.search.embedding_dimensions = max_dims
+      vim.notify(string.format("AI: Model set to %s, dimensions adjusted to %d", model, max_dims), vim.log.levels.INFO)
+    else
+      vim.notify(string.format("AI: Model set to %s. Re-index to apply changes.", model), vim.log.levels.INFO)
+    end
+  end, {
+    desc = "AI: Set embedding model",
+    nargs = 1,
+    complete = function()
+      return { "text-embedding-3-small", "text-embedding-3-large" }
+    end,
+  })
+  
+  vim.api.nvim_create_user_command("AIIndexWorkspace", function()
+    local search = require("ai.search")
+    search.index_workspace(function()
+      vim.notify("AI: Workspace indexing complete", vim.log.levels.INFO)
+    end)
+  end, {
+    desc = "AI: Index workspace for search",
   })
   
   vim.api.nvim_create_user_command("AIFindDefinition", function(args)
@@ -267,12 +354,6 @@ function M.setup()
   })
   
   -- Index management
-  vim.api.nvim_create_user_command("AIIndexWorkspace", function()
-    search.index_workspace()
-  end, {
-    desc = "AI: Index workspace",
-  })
-  
   vim.api.nvim_create_user_command("AIIndexStats", function()
     local stats = search.get_stats()
     vim.notify(string.format(
@@ -660,6 +741,23 @@ function M._jump_to_location(location)
     location.range.start_row + 1,
     location.range.start_col
   })
+end
+
+-- Helper function for search
+function M._do_search(query)
+  local search = require("ai.search")
+  local config = require("ai.config")
+  
+  vim.notify("AI: Searching for: " .. query, vim.log.levels.INFO)
+  
+  local results
+  if config.get().search.use_embeddings then
+    results = search.semantic_search(query)
+  else
+    results = search.keyword_search(query)
+  end
+  
+  M._show_search_results(results, query)
 end
 
 return M 

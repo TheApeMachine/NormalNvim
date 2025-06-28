@@ -56,9 +56,18 @@ M.defaults = {
     exclude_patterns = {        -- Patterns to exclude from indexing
       "%.git/",
       "node_modules/",
+      "%.venv/",
+      "venv/",
+      "__pycache__/",
       "%.min%.js$",
-      "%.lock$",
+      "%.min%.css$",
+      "dist/",
+      "build/",
     },
+    use_embeddings = false, -- Enable embeddings-based search
+    embedding_chunk_size = 50, -- Lines per chunk for embedding
+    embedding_model = "text-embedding-3-small", -- OpenAI embedding model (3-small or 3-large)
+    embedding_dimensions = 512, -- Dimensions for embeddings (lower = faster/cheaper, max: 1536 for small, 3072 for large)
   },
   
   -- Feature toggles

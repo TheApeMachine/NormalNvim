@@ -8,15 +8,18 @@ local context = require("ai.context")
 local config = require("ai.config")
 local parsers = require("nvim-treesitter.parsers")
 local scan = require('plenary.scandir')
+local embeddings = require('ai.embeddings')
 
 -- Search index storage
 M._index = {}
+M._embeddings = {}
 M._file_hashes = {}
 M._indexing = false
 
 -- Configuration
 M.config = {
   index_path = vim.fn.stdpath('cache') .. '/ai_search_index.json',
+  embeddings_path = vim.fn.stdpath('cache') .. '/ai_embeddings.json',
   exclude_dirs = {
     '.git', 'node_modules', '.venv', 'venv', '__pycache__', 
     'dist', 'build', 'target', '.idea', '.vscode'
@@ -26,15 +29,18 @@ M.config = {
     'c', 'cpp', 'h', 'hpp', 'java', 'cs', 'rb', 'php'
   },
   max_file_size = 1024 * 1024, -- 1MB
+  chunk_size = 50, -- Lines per chunk for embedding
 }
 
 -- Initialize search index
-function M.initialize()
-  if config.get().search.index_on_startup then
-    vim.defer_fn(function()
-      M.index_workspace()
-    end, 1000)
+function M.setup(opts)
+  if opts then
+    M.config = vim.tbl_extend('force', M.config, opts)
   end
+  
+  -- Load existing index and embeddings
+  M.load_index()
+  M.load_embeddings()
 end
 
 -- Check if file should be indexed
@@ -190,59 +196,81 @@ function M.index_file(filepath)
   }
 end
 
--- Index the workspace
-function M.index_workspace(callback)
-  vim.schedule(function()
-    vim.notify("AI Search: Indexing workspace...", vim.log.levels.INFO)
+-- Index the workspace with embeddings
+M.index_workspace_with_embeddings = function(callback)
+  vim.notify("AI: Indexing workspace with embeddings...", vim.log.levels.INFO)
+  M._index = {}
+  M._embeddings = {}
+  M._indexing = true
+  
+  local workspace_root = vim.fn.getcwd()
+  local files_to_index = {}
+  
+  -- First, collect all files to index
+  scan.scan_dir(workspace_root, {
+    hidden = false,
+    depth = 10,
+    add_dirs = false,
+    respect_gitignore = true,
+    on_insert = function(path)
+      if should_exclude(path) or not should_include(path) then
+        return false
+      end
+      table.insert(files_to_index, path)
+      return true
+    end,
+  })
+  
+  vim.notify(string.format("AI: Found %d files to index", #files_to_index), vim.log.levels.INFO)
+  
+  -- Process files in batches
+  local completed = 0
+  local batch_size = 5
+  
+  local function process_batch(start_idx)
+    local batch_completed = 0
+    local batch_count = 0
     
-    M._index = {}
-    M._file_cache = {}
-    
-    local workspace_root = vim.fn.getcwd()
-    local files_indexed = 0
-    
-    -- Use plenary's scandir for cross-platform file scanning
-    local files = scan.scan_dir(workspace_root, {
-      hidden = false,
-      depth = 10,
-      add_dirs = false,
-      respect_gitignore = true,
-      on_insert = function(path)
-        -- Check if we should process this file
-        if should_exclude(path) then
-          return false
-        end
-        if not should_include(path) then
-          return false
+    for i = start_idx, math.min(start_idx + batch_size - 1, #files_to_index) do
+      batch_count = batch_count + 1
+      M.index_file_with_embeddings(files_to_index[i], function(success)
+        batch_completed = batch_completed + 1
+        completed = completed + 1
+        
+        if completed % 10 == 0 then
+          vim.schedule(function()
+            vim.notify(string.format("AI: Indexed %d/%d files", completed, #files_to_index), vim.log.levels.INFO)
+          end)
         end
         
-        -- Index the file
-        local file_data = M.index_file(path)
-        if file_data then
-          M._index[path] = file_data
-          files_indexed = files_indexed + 1
-          
-          -- Show progress every 100 files
-          if files_indexed % 100 == 0 then
+        -- Process next batch when current batch is done
+        if batch_completed == batch_count then
+          if completed < #files_to_index then
+            vim.defer_fn(function()
+              process_batch(start_idx + batch_size)
+            end, 500) -- Delay between batches
+          else
+            -- All done
+            M._indexing = false
+            M.save_index()
+            M.save_embeddings()
             vim.schedule(function()
-              vim.notify(string.format("AI Search: Indexed %d files...", files_indexed), vim.log.levels.INFO)
+              vim.notify(string.format("AI: Indexed %d files with embeddings", completed), vim.log.levels.INFO)
+              if callback then callback() end
             end)
           end
         end
-        
-        return true
-      end,
-    })
-    
-    -- Save index to cache
-    M.save_index()
-    
-    vim.schedule(function()
-      vim.notify(string.format("AI Search: Indexed %d files", files_indexed), vim.log.levels.INFO)
-      M._last_indexed = os.time()
-      if callback then callback() end
-    end)
-  end)
+      end)
+    end
+  end
+  
+  -- Start processing
+  if #files_to_index > 0 then
+    process_batch(1)
+  else
+    M._indexing = false
+    if callback then callback() end
+  end
 end
 
 -- Process files in batches
@@ -313,67 +341,75 @@ function M.get_stats()
   }
 end
 
--- Semantic search with query understanding
+-- True semantic search using embeddings
 M.semantic_search = function(query, opts)
   opts = opts or {}
   local max_results = opts.max_results or 10
   
-  -- For now, use enhanced keyword search
-  -- TODO: In the future, this will use embeddings
-  local results = M.keyword_search(query, opts)
+  -- Check if we have embeddings
+  if vim.tbl_count(M._embeddings) == 0 then
+    vim.notify("AI: No embeddings found. Falling back to keyword search.", vim.log.levels.WARN)
+    return M.keyword_search(query, opts)
+  end
   
-  -- If we have an LLM available and few results, we can enhance the search
-  if #results < 5 and opts.use_llm then
-    local llm = require('ai.llm')
-    local context = require('ai.context')
+  -- Generate embedding for the query
+  local results = {}
+  embeddings.generate_embedding(query, function(query_embedding, err)
+    if err or not query_embedding then
+      vim.notify("AI: Failed to generate query embedding. Falling back to keyword search.", vim.log.levels.WARN)
+      results = M.keyword_search(query, opts)
+      return
+    end
     
-    -- Ask LLM to expand the query
-    local prompt = {
-      {
-        role = "system",
-        content = "You are a code search assistant. Given a search query, suggest related keywords, function names, or concepts that might help find relevant code."
-      },
-      {
-        role = "user", 
-        content = string.format([[
-Search query: "%s"
-
-Suggest 3-5 alternative search terms or patterns that might help find relevant code.
-Format as a JSON array of strings.
-]], query)
-      }
-    }
+    -- Find similar chunks
+    local similar = embeddings.find_similar(query_embedding, M._embeddings, max_results * 2)
     
-    llm.request(prompt, { 
-      max_tokens = 100,
-      response_format = { type = "json_object" }
-    }, function(response)
-      if response then
-        local ok, data = pcall(vim.json.decode, response)
-        if ok and data.terms then
-          -- Search with expanded terms
-          for _, term in ipairs(data.terms) do
-            local more_results = M.keyword_search(term, opts)
-            for _, result in ipairs(more_results) do
-              -- Avoid duplicates
-              local duplicate = false
-              for _, existing in ipairs(results) do
-                if existing.file == result.file and existing.line == result.line then
-                  duplicate = true
-                  break
-                end
-              end
-              if not duplicate then
-                table.insert(results, result)
-                if #results >= max_results then
-                  break
-                end
-              end
-            end
+    -- Convert chunk results to file results
+    local seen_files = {}
+    for _, match in ipairs(similar) do
+      local chunk_id = match.id
+      local filepath, chunk_idx = chunk_id:match("^(.+):(%d+)$")
+      chunk_idx = tonumber(chunk_idx)
+      
+      if filepath and chunk_idx and M._index[filepath] then
+        local file_data = M._index[filepath]
+        local chunk = file_data.chunks[chunk_idx]
+        
+        if chunk and not seen_files[filepath] then
+          seen_files[filepath] = true
+          table.insert(results, {
+            file = filepath,
+            line = chunk.start_line,
+            text = chunk.content,
+            score = match.score,
+            match_type = "semantic"
+          })
+          
+          if #results >= max_results then
+            break
           end
         end
       end
-    end)
+    end
+    
+    -- If we don't have enough results, supplement with keyword search
+    if #results < max_results / 2 then
+      local keyword_results = M.keyword_search(query, {
+        max_results = max_results - #results
+      })
+      
+      for _, result in ipairs(keyword_results) do
+        result.match_type = "keyword"
+        table.insert(results, result)
+      end
+    end
+  end)
+  
+  -- Wait for async operation (with timeout)
+  local timeout = 5000
+  local start = vim.loop.now()
+  while #results == 0 and (vim.loop.now() - start) < timeout do
+    vim.wait(10)
   end
   
   return results
@@ -501,6 +537,230 @@ M.load_index = function()
   end
   
   return false
+end
+
+-- Extract code chunks for embedding
+local function extract_chunks(filepath, content)
+  local chunks = {}
+  local lines = vim.split(content, '\n')
+  local language = vim.filetype.match({ filename = filepath })
+  
+  -- Try to extract semantic chunks (functions, classes)
+  if language and parsers.has_parser(language) then
+    local parser = vim.treesitter.get_string_parser(content, language)
+    local tree = parser:parse()[1]
+    local root = tree:root()
+    
+    -- Query for function and class nodes
+    local query_string = [[
+      (function_declaration) @function
+      (function_definition) @function
+      (method_declaration) @function
+      (method_definition) @function
+      (class_declaration) @class
+      (class_definition) @class
+    ]]
+    
+    local ok, query = pcall(vim.treesitter.query.parse, language, query_string)
+    if ok then
+      for id, node in query:iter_captures(root, content) do
+        local start_row, _, end_row, _ = node:range()
+        local chunk_lines = {}
+        
+        for i = start_row + 1, math.min(end_row + 1, #lines) do
+          table.insert(chunk_lines, lines[i])
+        end
+        
+        if #chunk_lines > 0 then
+          table.insert(chunks, {
+            content = table.concat(chunk_lines, '\n'),
+            start_line = start_row + 1,
+            end_line = end_row + 1,
+            type = query.captures[id]
+          })
+        end
+      end
+    end
+  end
+  
+  -- Fallback: chunk by fixed size if no semantic chunks found
+  if #chunks == 0 then
+    for i = 1, #lines, M.config.chunk_size do
+      local chunk_lines = {}
+      local end_idx = math.min(i + M.config.chunk_size - 1, #lines)
+      
+      for j = i, end_idx do
+        table.insert(chunk_lines, lines[j])
+      end
+      
+      table.insert(chunks, {
+        content = table.concat(chunk_lines, '\n'),
+        start_line = i,
+        end_line = end_idx,
+        type = "block"
+      })
+    end
+  end
+  
+  return chunks
+end
+
+-- Index a single file with embeddings
+M.index_file_with_embeddings = function(filepath, callback)
+  local path = Path:new(filepath)
+  
+  -- Check file size
+  local stat = vim.loop.fs_stat(filepath)
+  if not stat or stat.size > M.config.max_file_size then
+    if callback then callback(false) end
+    return
+  end
+  
+  -- Read file content
+  local ok, content = pcall(path.read, path)
+  if not ok then
+    if callback then callback(false) end
+    return
+  end
+  
+  -- Extract chunks
+  local chunks = extract_chunks(filepath, content)
+  
+  -- Generate embeddings for chunks
+  local chunk_texts = {}
+  for i, chunk in ipairs(chunks) do
+    local chunk_id = filepath .. ":" .. i
+    chunk_texts[chunk_id] = chunk.content
+  end
+  
+  embeddings.batch_generate_embeddings(chunk_texts, function(chunk_embeddings)
+    -- Store file data
+    M._index[filepath] = {
+      path = filepath,
+      content = content,
+      chunks = chunks,
+      size = stat.size,
+      modified = stat.mtime.sec,
+    }
+    
+    -- Store embeddings
+    for chunk_id, embedding in pairs(chunk_embeddings) do
+      M._embeddings[chunk_id] = embedding
+    end
+    
+    if callback then callback(true) end
+  end)
+end
+
+-- Save embeddings to disk
+M.save_embeddings = function()
+  local embeddings_path = M.config.embeddings_path
+  local cache_dir = vim.fn.fnamemodify(embeddings_path, ':h')
+  
+  vim.fn.mkdir(cache_dir, 'p')
+  
+  local ok, encoded = pcall(vim.json.encode, {
+    version = 1,
+    embeddings = M._embeddings,
+  })
+  
+  if ok then
+    local file = io.open(embeddings_path, 'w')
+    if file then
+      file:write(encoded)
+      file:close()
+    end
+  end
+end
+
+-- Load embeddings from disk
+M.load_embeddings = function()
+  local embeddings_path = M.config.embeddings_path
+  
+  if vim.fn.filereadable(embeddings_path) == 0 then
+    return false
+  end
+  
+  local file = io.open(embeddings_path, 'r')
+  if not file then
+    return false
+  end
+  
+  local content = file:read('*all')
+  file:close()
+  
+  local ok, data = pcall(vim.json.decode, content)
+  if ok and data then
+    M._embeddings = data.embeddings or {}
+    return true
+  end
+  
+  return false
+end
+
+-- Update the main index_workspace to use embeddings if available
+M.index_workspace = function(callback)
+  local provider = config.get().provider
+  
+  -- Use embeddings for OpenAI or if explicitly enabled
+  if provider == "openai" or config.get().search.use_embeddings then
+    M.index_workspace_with_embeddings(callback)
+  else
+    -- Use the existing keyword-based indexing
+    M.index_workspace_keyword(callback)
+  end
+end
+
+-- Rename the old index_workspace to index_workspace_keyword
+M.index_workspace_keyword = function(callback)
+  vim.notify("AI: Indexing workspace with keyword search...", vim.log.levels.INFO)
+  M._index = {}
+  M._file_cache = {}
+  
+  local workspace_root = vim.fn.getcwd()
+  local files_indexed = 0
+  
+  -- Use plenary's scandir for cross-platform file scanning
+  local files = scan.scan_dir(workspace_root, {
+    hidden = false,
+    depth = 10,
+    add_dirs = false,
+    respect_gitignore = true,
+    on_insert = function(path)
+      -- Check if we should process this file
+      if should_exclude(path) then
+        return false
+      end
+      if not should_include(path) then
+        return false
+      end
+      
+      -- Index the file
+      local file_data = M.index_file(path)
+      if file_data then
+        M._index[path] = file_data
+        files_indexed = files_indexed + 1
+        
+        -- Show progress every 100 files
+        if files_indexed % 100 == 0 then
+          vim.schedule(function()
+            vim.notify(string.format("AI Search: Indexed %d files...", files_indexed), vim.log.levels.INFO)
+          end)
+        end
+      end
+      
+      return true
+    end,
+  })
+  
+  -- Save index to cache
+  M.save_index()
+  
+  vim.schedule(function()
+    vim.notify(string.format("AI Search: Indexed %d files", files_indexed), vim.log.levels.INFO)
+    M._last_indexed = os.time()
+    if callback then callback() end
+  end)
 end
 
 return M 

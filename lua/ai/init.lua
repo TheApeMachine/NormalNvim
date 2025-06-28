@@ -9,6 +9,7 @@ local modules = {
   'ai.config',
   'ai.context', 
   'ai.llm',
+  'ai.embeddings',
   'ai.edit',
   'ai.refactor',
   'ai.search',

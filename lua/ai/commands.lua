@@ -11,6 +11,7 @@ function M.setup()
   local refactor = require("ai.refactor")
   local search = require("ai.search")
   local config = require("ai.config")
+  local ai = require('ai')
   
   -- Completion command
   vim.api.nvim_create_user_command("AIComplete", function(args)
@@ -944,6 +945,384 @@ Provide specific, actionable feedback with examples where applicable.
     nargs = '?',
     desc = "AI: Query with access to web search and tools"
   })
+  
+  -- AST Transformation commands
+  vim.api.nvim_create_user_command('AITransform', function(opts)
+    local transform_name = opts.args
+    if transform_name == "" then
+      -- Show available transformations
+      local transforms = {
+        "callback_to_async - Convert callbacks to async/await",
+        "class_to_function - Convert React classes to functions", 
+        "cjs_to_esm - Convert CommonJS to ES modules",
+        "py2_to_py3 - Convert Python 2 to Python 3",
+      }
+      vim.ui.select(transforms, {
+        prompt = "Select transformation:",
+      }, function(choice)
+        if choice then
+          local name = choice:match("^(%w+)")
+          require('ai.ast_transform').apply_transformation(name)
+        end
+      end)
+    else
+      require('ai.ast_transform').apply_transformation(transform_name)
+    end
+  end, {
+    nargs = '?',
+    desc = "AI: Apply AST transformation",
+    complete = function()
+      return {'callback_to_async', 'class_to_function', 'cjs_to_esm', 'py2_to_py3'}
+    end,
+  })
+  
+  vim.api.nvim_create_user_command('AICrossRename', function(opts)
+    local args = vim.split(opts.args, " ")
+    if #args < 2 then
+      vim.notify("Usage: :AICrossRename <old_name> <new_name>", vim.log.levels.ERROR)
+      return
+    end
+    require('ai.ast_transform').cross_language_rename(args[1], args[2])
+  end, {
+    nargs = '+',
+    desc = "AI: Cross-language symbol rename"
+  })
+  
+  vim.api.nvim_create_user_command('AISemanticMerge', function(opts)
+    -- This would typically be called from a git merge conflict
+    vim.notify("Semantic merge requires git conflict markers in buffer", vim.log.levels.INFO)
+  end, {
+    desc = "AI: Semantic merge for conflicts"
+  })
+  
+  -- Code Intelligence commands
+  vim.api.nvim_create_user_command('AIIndexProject', function()
+    vim.notify("Indexing project...", vim.log.levels.INFO)
+    require('ai.intelligence').index_project()
+  end, {
+    desc = "AI: Index project for code intelligence"
+  })
+  
+  vim.api.nvim_create_user_command('AITypeFlow', function(opts)
+    local symbol = opts.args
+    if symbol == "" then
+      symbol = vim.fn.expand('<cword>')
+    end
+    local flow = require('ai.intelligence').analyze_type_flow(symbol)
+    
+    -- Show results
+    local lines = {
+      "# Type Flow Analysis: " .. symbol,
+      "",
+      "Likely type: " .. (flow.likely_type or "unknown"),
+      "",
+      "## Usages (" .. #flow.usages .. " found)",
+    }
+    
+    for i, usage in ipairs(flow.usages) do
+      if i <= 10 then
+        table.insert(lines, string.format("%d. %s:%d", i, usage.file, usage.line))
+        table.insert(lines, "   " .. vim.trim(usage.content))
+      end
+    end
+    
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, 'filetype', 'markdown')
+    vim.cmd('split')
+    vim.api.nvim_set_current_buf(buf)
+  end, {
+    nargs = '?',
+    desc = "AI: Analyze type flow for symbol"
+  })
+  
+  vim.api.nvim_create_user_command('AIImpactAnalysis', function()
+    local file = vim.fn.expand('%:p')
+    local line = vim.fn.line('.')
+    local impact = require('ai.intelligence').analyze_impact(file, line)
+    
+    -- Show results
+    local lines = {
+      "# Impact Analysis",
+      "",
+      string.format("Location: %s:%d", file, line),
+      "",
+      "## Direct Impact (" .. #impact.direct .. " files)",
+    }
+    
+    for _, dep in ipairs(impact.direct) do
+      table.insert(lines, "- " .. dep.file)
+    end
+    
+    if #impact.critical > 0 then
+      table.insert(lines, "")
+      table.insert(lines, "## Critical Impact")
+      for _, crit in ipairs(impact.critical) do
+        table.insert(lines, string.format("- %s (%s)", crit.file, crit.reason))
+      end
+    end
+    
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, 'filetype', 'markdown')
+    vim.cmd('split')
+    vim.api.nvim_set_current_buf(buf)
+  end, {
+    desc = "AI: Analyze impact of changes at cursor"
+  })
+  
+  vim.api.nvim_create_user_command('AIFindDeadCode', function()
+    vim.notify("Analyzing for dead code...", vim.log.levels.INFO)
+    local dead_code = require('ai.intelligence').find_dead_code()
+    
+    -- Show results
+    local lines = {"# Dead Code Analysis", ""}
+    
+    for category, items in pairs(dead_code) do
+      if #items > 0 then
+        table.insert(lines, "## " .. category:gsub("_", " "):gsub("^%l", string.upper))
+        table.insert(lines, "")
+        for _, item in ipairs(items) do
+          table.insert(lines, string.format("- %s in %s:%d (confidence: %d%%)", 
+            item.name, item.file, item.line, item.confidence))
+        end
+        table.insert(lines, "")
+      end
+    end
+    
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, 'filetype', 'markdown')
+    vim.cmd('tabnew')
+    vim.api.nvim_set_current_buf(buf)
+  end, {
+    desc = "AI: Find potentially dead code"
+  })
+  
+  vim.api.nvim_create_user_command('AIGenerateDocs', function(opts)
+    local symbol = opts.args
+    if symbol == "" then
+      symbol = vim.fn.expand('<cword>')
+    end
+    
+    local docs = require('ai.intelligence').generate_api_docs(symbol)
+    
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(docs, '\n'))
+    vim.api.nvim_buf_set_option(buf, 'filetype', 'markdown')
+    vim.cmd('split')
+    vim.api.nvim_set_current_buf(buf)
+  end, {
+    nargs = '?',
+    desc = "AI: Generate API docs from usage"
+  })
+  
+  vim.api.nvim_create_user_command('AIIntelligenceReport', function()
+    require('ai.intelligence').show_report()
+  end, {
+    desc = "AI: Show code intelligence report"
+  })
+  
+  -- Pair Programming commands
+  vim.api.nvim_create_user_command('AIPairMode', function(opts)
+    local mode = opts.args
+    if mode == "" then
+      require('ai.pair').toggle()
+    else
+      require('ai.pair').set_mode(mode)
+    end
+  end, {
+    nargs = '?',
+    desc = "AI: Toggle or set pair programming mode",
+    complete = function()
+      return {'normal', 'focused', 'learning'}
+    end,
+  })
+  
+  vim.api.nvim_create_user_command('AIPairEnable', function()
+    require('ai.pair').enable()
+  end, {
+    desc = "AI: Enable pair programming mode"
+  })
+  
+  vim.api.nvim_create_user_command('AIPairDisable', function()
+    require('ai.pair').disable()
+  end, {
+    desc = "AI: Disable pair programming mode"
+  })
+  
+  vim.api.nvim_create_user_command('AIPairReview', function()
+    require('ai.pair').review_as_you_type()
+  end, {
+    desc = "AI: Review current function"
+  })
+  
+  -- Git commands
+  vim.api.nvim_create_user_command('AIGitCommit', function()
+    require('ai.git').generate_commit_message()
+  end, {
+    desc = "AI: Generate commit message"
+  })
+  
+  vim.api.nvim_create_user_command('AIGitResolve', function()
+    require('ai.git').resolve_conflict()
+  end, {
+    desc = "AI: Resolve merge conflicts semantically"
+  })
+  
+  vim.api.nvim_create_user_command('AIGitPR', function()
+    require('ai.git').generate_pr_description()
+  end, {
+    desc = "AI: Generate PR description"
+  })
+  
+  vim.api.nvim_create_user_command('AIGitBranch', function()
+    require('ai.git').suggest_branch_name()
+  end, {
+    desc = "AI: Suggest branch name"
+  })
+  
+  vim.api.nvim_create_user_command('AIGitRebase', function()
+    require('ai.git').interactive_rebase_helper()
+  end, {
+    desc = "AI: Help with interactive rebase"
+  })
+  
+  vim.api.nvim_create_user_command('AIGitPrePush', function()
+    require('ai.git').pre_push_review()
+  end, {
+    desc = "AI: Review commits before push"
+  })
+  
+  -- TDD commands
+  vim.api.nvim_create_user_command('AIImplementFromTest', function()
+    ai.tdd.implement_from_test()
+  end, { desc = 'Implement code from test specification' })
+  
+  vim.api.nvim_create_user_command('AIGeneratePropertyTests', function()
+    ai.tdd.generate_property_tests()
+  end, { desc = 'Generate property-based tests for function' })
+  
+  vim.api.nvim_create_user_command('AIWatchTests', function()
+    ai.tdd.watch_tests()
+  end, { desc = 'Watch tests and suggest fixes on failure' })
+  
+  vim.api.nvim_create_user_command('AIImplementUncovered', function()
+    ai.tdd.implement_uncovered_code()
+  end, { desc = 'Implement code for uncovered test cases' })
+  
+  -- Consistency commands
+  vim.api.nvim_create_user_command('AILearnPatterns', function()
+    ai.consistency.learn_patterns()
+  end, { desc = 'Learn coding patterns from codebase' })
+  
+  vim.api.nvim_create_user_command('AICheckConsistency', function()
+    ai.consistency.check_file()
+  end, { desc = 'Check current file for consistency issues' })
+  
+  vim.api.nvim_create_user_command('AIEnableConsistencyCheck', function()
+    ai.consistency.enable_auto_check()
+  end, { desc = 'Enable automatic consistency checking on save' })
+  
+  -- Git commands
+  vim.api.nvim_create_user_command('AICommitMessage', function()
+    ai.git.generate_commit_message()
+  end, { desc = 'Generate commit message from staged changes' })
+  
+  vim.api.nvim_create_user_command('AIReviewPR', function()
+    ai.git.review_pr()
+  end, { desc = 'Review pull request changes' })
+  
+  vim.api.nvim_create_user_command('AIExplainDiff', function()
+    ai.git.explain_diff()
+  end, { desc = 'Explain current diff' })
+  
+  vim.api.nvim_create_user_command('AIResolveConflict', function()
+    ai.git.resolve_conflict()
+  end, { desc = 'Help resolve merge conflict' })
+  
+  vim.api.nvim_create_user_command('AIImproveCommit', function()
+    ai.git.improve_commit_message()
+  end, { desc = 'Improve commit message' })
+  
+  vim.api.nvim_create_user_command('AIGitBlame', function()
+    ai.git.explain_blame()
+  end, { desc = 'Explain git blame for current line' })
+  
+  -- Pair programming commands
+  vim.api.nvim_create_user_command('AIPairStart', function()
+    ai.pair.start_session()
+  end, { desc = 'Start AI pair programming session' })
+  
+  vim.api.nvim_create_user_command('AIPairStop', function()
+    ai.pair.stop_session()
+  end, { desc = 'Stop AI pair programming session' })
+  
+  vim.api.nvim_create_user_command('AIPairToggle', function()
+    ai.pair.toggle_session()
+  end, { desc = 'Toggle AI pair programming session' })
+  
+  vim.api.nvim_create_user_command('AIPairStatus', function()
+    ai.pair.show_status()
+  end, { desc = 'Show AI pair programming status' })
+  
+  -- Intelligence commands
+  vim.api.nvim_create_user_command('AIIndexProject', function()
+    ai.intelligence.index_project()
+  end, { desc = 'Index project for intelligent navigation' })
+  
+  vim.api.nvim_create_user_command('AIFindDefinition', function()
+    ai.intelligence.find_definition()
+  end, { desc = 'Find symbol definition' })
+  
+  vim.api.nvim_create_user_command('AIFindReferences', function()
+    ai.intelligence.find_references()
+  end, { desc = 'Find symbol references' })
+  
+  vim.api.nvim_create_user_command('AIFindRelated', function()
+    ai.intelligence.find_related()
+  end, { desc = 'Find related code' })
+  
+  vim.api.nvim_create_user_command('AICallHierarchy', function()
+    ai.intelligence.show_call_hierarchy()
+  end, { desc = 'Show call hierarchy' })
+  
+  vim.api.nvim_create_user_command('AIFindSimilar', function()
+    ai.intelligence.find_similar_functions()
+  end, { desc = 'Find similar functions' })
+  
+  vim.api.nvim_create_user_command('AIAnalyzeDependencies', function()
+    ai.intelligence.analyze_dependencies()
+  end, { desc = 'Analyze module dependencies' })
+  
+  -- AST transformation commands
+  vim.api.nvim_create_user_command('AITransform', function()
+    ai.ast_transform.transform_code()
+  end, { desc = 'Transform code using AST' })
+  
+  vim.api.nvim_create_user_command('AITransformCallback', function()
+    ai.ast_transform.transform_callbacks_to_async()
+  end, { desc = 'Transform callbacks to async/await' })
+  
+  vim.api.nvim_create_user_command('AITransformClass', function()
+    ai.ast_transform.transform_class_to_hooks()
+  end, { desc = 'Transform class components to hooks' })
+  
+  vim.api.nvim_create_user_command('AITransformImports', function()
+    ai.ast_transform.transform_commonjs_to_esm()
+  end, { desc = 'Transform CommonJS to ESM' })
+  
+  vim.api.nvim_create_user_command('AITransformPython', function()
+    ai.ast_transform.transform_python2_to_3()
+  end, { desc = 'Transform Python 2 to Python 3' })
+  
+  vim.api.nvim_create_user_command('AIMergeConflict', function()
+    ai.ast_transform.semantic_merge()
+  end, { desc = 'Semantic merge conflict resolution' })
+  
+  vim.api.nvim_create_user_command('AIRenameAcrossLanguages', function()
+    ai.ast_transform.rename_across_languages()
+  end, { desc = 'Rename symbol across different languages' })
 end
 
 -- Show results in a floating window

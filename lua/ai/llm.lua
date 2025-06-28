@@ -359,29 +359,26 @@ M.request = function(messages, opts, callback)
   end, timeout_ms)
 end
 
--- Synchronous request wrapper
-function M.request_sync(prompt, opts)
-  local result, error = nil, nil
+-- Synchronous request (blocks until complete)
+M.request_sync = function(prompt, opts)
+  opts = opts or {}
+  local result = nil
   local done = false
   
-  M.request(prompt, opts, function(res, err)
-    result = res
-    error = err
+  M.request(prompt, opts, function(response)
+    result = response
     done = true
   end)
   
   -- Wait for completion (with timeout)
-  local timeout = 30000 -- 30 seconds
+  local timeout = opts.timeout or 30000 -- 30 seconds
   local start = vim.loop.now()
+  
   while not done and (vim.loop.now() - start) < timeout do
-    vim.wait(10)
+    vim.wait(10) -- Wait 10ms
   end
   
-  if not done then
-    return nil, "Request timeout"
-  end
-  
-  return result, error
+  return result
 end
 
 -- Build a prompt for code completion

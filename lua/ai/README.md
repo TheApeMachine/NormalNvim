@@ -1,1212 +1,378 @@
 # AI Assistant for Neovim
 
-A Tree-sitter powered AI coding assistant that brings intelligent code completion, refactoring, and project understanding directly into Neovim.
+A comprehensive AI-powered coding assistant that integrates directly into Neovim, providing intelligent code completion, refactoring, and analysis capabilities.
 
 ## Features
 
-### 🧠 Intelligent Context Extraction
+### Core Features
+- **Smart Code Completion** - Context-aware code suggestions using LLMs
+- **Code Explanation** - Understand complex code with AI-powered explanations
+- **Intelligent Refactoring** - Automated code improvements and transformations
+- **Semantic Code Search** - Find code by meaning, not just text
+- **Multi-File Operations** - Refactor across entire codebases
+- **AI-Powered Testing** - Generate comprehensive test suites automatically
+- **Advanced Debugging** - AI-assisted error analysis and fixes
+- **Interactive Chat** - ChatGPT-style interface within Neovim
 
-- Uses Tree-sitter for accurate code parsing
-- Understands function/class scope
-- Extracts imports and dependencies
-- Maintains cursor context for precise completions
-
-### 💬 Multi-Provider LLM Support
-
-- **OpenAI** (GPT-4, GPT-3.5) - with structured output support
-- **Anthropic** (Claude)
-- **Ollama** (Local models)
-- Request queueing for rate limit handling
-- Response caching for efficiency
-- Streaming support for long responses (OpenAI only)
-
-### ✏️ Smart Code Editing
-
-- Syntax-aware code insertion
-- Safe editing with validation
-- Rollback on syntax errors
-- Diff preview for changes
-- Maintains proper indentation
-
-### 🔧 Refactoring Tools
-
-- Extract function from selection
-- Rename symbols
-- Simplify complex logic
-- Add type annotations
-- Organize imports
-
-### 🔍 Code Search
-
-- **Semantic search with embeddings** (OpenAI)
-- **Keyword search** (all providers)
-- Symbol extraction (functions, classes, etc.)
-- Cross-platform file scanning
-- Configurable file filters
-- Similarity-based code discovery
-
-### 📋 AI Planning System
-
-- Multi-stage planning (understand → plan → review → execute)
-- Interactive Q&A for clarification
-- Project-aware with persistent memory
-- Learns coding patterns and conventions
-- Step-by-step execution with progress tracking
+### Advanced Features
+- **AST-Based Transformations** - Language-aware code transformations
+- **Local Code Intelligence** - Fast, offline code analysis and navigation
+- **AI Pair Programming** - Real-time coding assistance and suggestions
+- **Smart Git Integration** - AI-powered commit messages and PR reviews
+- **Test-Driven Development Assistant** - Implement code from tests
+- **Project-Wide Consistency Enforcer** - Learn and enforce coding patterns
+- **Web Search Integration** - Search and summarize web content
+- **Tool Calling** - AI autonomously uses tools to answer queries
 
 ## Installation
 
-### Prerequisites
+Add to your Neovim configuration:
 
-- Neovim 0.9+ with Tree-sitter support
-- Tree-sitter parsers for your languages
-- API key for your chosen LLM provider
-
-### Setup
-
-1. Ensure the AI module is in your Neovim config:
-
-```
-~/.config/nvim/lua/ai/
-```
-
-2. Set up your API key:
-
-```bash
-export OPENAI_API_KEY="your-key-here"
-# or
-export ANTHROPIC_API_KEY="your-key-here"
-```
-
-3. Install Tree-sitter parsers:
-
-```vim
-:TSInstall python javascript typescript lua
+```lua
+-- In your plugin manager (e.g., lazy.nvim)
+{
+  'your-username/ai.nvim',
+  dependencies = {
+    'nvim-lua/plenary.nvim',
+    'nvim-treesitter/nvim-treesitter',
+  },
+  config = function()
+    require('ai').setup({
+      -- Optional configuration
+      providers = {
+        openai = {
+          api_key = vim.env.OPENAI_API_KEY,
+          model = "gpt-4-turbo-preview",
+        },
+      },
+    })
+  end,
+}
 ```
 
 ## Commands
 
-### General
-
-- `:AIComplete [instruction]` - Complete code at cursor with optional instruction
+### Basic Commands
+- `:AIComplete` - Complete code at cursor
 - `:AIExplain` - Explain selected code
-- `:AITest` - Test AI setup
-- `:checkhealth ai` - Check AI assistant health
+- `:AIRefactor <type>` - Refactor code (extract/inline/simplify)
+- `:AISearch <query>` - Search codebase semantically
+- `:AIChat` - Open interactive chat
 
-### Refactoring
+### Planning & Architecture
+- `:AIPlan` - Create implementation plan
+- `:AIShowPlan` - Show current plan
+- `:AIAnalyzeProject` - Analyze project structure
+- `:AILearnPatterns` - Learn project patterns
 
-- `:AIRefactor <instruction>` - Refactor with custom instruction
-- `:AIExtractFunction` - Extract selection to function
-- `:AIRename <new_name>` - Rename symbol
-- `:AISimplifyLogic` - Simplify complex code
-- `:AIAddTypes` - Add type annotations
-- `:AIOrganizeImports` - Organize imports
+### Testing & Debugging
+- `:AIGenerateTests` - Generate tests for current code
+- `:AIDebugError` - Analyze error at cursor
+- `:AIImplementFromTest` - Implement code from test specification
+- `:AIGeneratePropertyTests` - Generate property-based tests
+- `:AIWatchTests` - Watch tests and suggest fixes
+- `:AIImplementUncovered` - Implement uncovered code paths
 
-### Search
+### Multi-File & Refactoring
+- `:AIRenameSymbol` - Rename across project
+- `:AIExtractModule` - Extract code to new module
+- `:AITransform` - Transform code using AST
+- `:AITransformCallback` - Convert callbacks to async/await
+- `:AITransformClass` - Convert class components to hooks
+- `:AITransformImports` - Convert CommonJS to ESM
 
-- `:AISearch <query>` - Search codebase
+### Git Integration
+- `:AICommitMessage` - Generate commit message
+- `:AIReviewCode` - Review current changes
+- `:AIReviewPR` - Review pull request
+- `:AIExplainDiff` - Explain current diff
+- `:AIResolveConflict` - Help resolve merge conflicts
+- `:AIGitBlame` - Explain git blame
+
+### Code Intelligence
+- `:AIIndexProject` - Index project for navigation
 - `:AIFindDefinition` - Find symbol definition
 - `:AIFindReferences` - Find symbol references
-- `:AIIndexWorkspace` - Index project files
+- `:AIFindRelated` - Find related code
+- `:AICallHierarchy` - Show call hierarchy
+- `:AIFindSimilar` - Find similar functions
 
-### Planning
+### Consistency & Quality
+- `:AICheckConsistency` - Check file for consistency issues
+- `:AILearnPatterns` - Learn coding patterns from codebase
+- `:AIEnableConsistencyCheck` - Auto-check on save
 
-- `:AIPlan [task]` - Create implementation plan
-- `:AIExecutePlan` - Execute current plan
-- `:AIShowPlan` - View current plan
-- `:AIAnalyzeProject` - Analyze project structure
-- `:AILearnPatterns` - Learn coding patterns
+### Pair Programming
+- `:AIPairStart` - Start pair programming session
+- `:AIPairStop` - Stop pair programming session
+- `:AIPairToggle` - Toggle pair programming
+- `:AIPairStatus` - Show session status
 
-### Inline Completion
+### Web & Research
+- `:AIWebSearch <query>` - Search the web
+- `:AIWebSummary <url>` - Summarize web page
+- `:AIResearch <topic>` - Research topic online
+- `:AIQuery <question>` - Query with tool access
 
-- In insert mode: `<Tab>` to accept, `<Esc>` to dismiss
+### Utility Commands
+- `:AICancel` - Cancel current operation
+- `:AISetModel <model>` - Change AI model
+- `:AISetProvider <provider>` - Change provider
+- `:AIShowContext` - Show current context
 
-## Key Mappings
+## Test-Driven Development Assistant
 
-Default mappings with `<leader>a` prefix:
+The TDD Assistant helps you write code by implementing functionality from test specifications:
 
-| Key           | Description          |
-|---------------|----------------------|
-| `<leader>ac`  | Complete with prompt |
-| `<leader>ae`  | Explain code         |
-| `<leader>arr` | Refactor (custom)    |
-| `<leader>arf` | Extract function     |
-| `<leader>ars` | Simplify logic       |
-| `<leader>art` | Add types            |
-| `<leader>aro` | Organize imports     |
-| `<leader>arR` | Rename symbol        |
-| `<leader>a/`  | Search semantically  |
-| `<leader>ad`  | Find definition      |
-| `<leader>aD`  | Find references      |
-| `<leader>app` | Create plan          |
-| `<leader>ape` | Execute plan         |
-| `<leader>apP` | Show plan            |
-| `<leader>apA` | Analyze project      |
-| `<leader>apL` | Learn patterns       |
-| `<leader>au`  | Undo last AI edit    |
-| `<leader>aI`  | Index workspace      |
+### Features
+- **Test-First Implementation** - Write tests, then let AI implement the code
+- **Property-Based Testing** - Generate comprehensive property tests
+- **Test Watching** - Monitor test execution and suggest fixes
+- **Coverage Analysis** - Find and implement uncovered code paths
+
+### Usage
+
+1. **Implement from Test**:
+   ```javascript
+   // Write your test first
+   describe('Calculator', () => {
+     it('should add two numbers', () => {
+       expect(add(2, 3)).toBe(5);
+     });
+   });
+   ```
+   Run `:AIImplementFromTest` to generate the implementation.
+
+2. **Property Testing**:
+   Place cursor on a function and run `:AIGeneratePropertyTests` to create property-based tests that check invariants.
+
+3. **Test Watching**:
+   Run `:AIWatchTests` to monitor test execution. When tests fail, AI will analyze failures and suggest fixes.
+
+4. **Coverage Gaps**:
+   Run `:AIImplementUncovered` to find code paths without test coverage and generate appropriate tests.
+
+## Project-Wide Consistency Enforcer
+
+The Consistency Enforcer learns your project's coding patterns and helps maintain them:
+
+### Features
+- **Pattern Learning** - Analyzes your codebase to learn conventions
+- **Real-time Checking** - Validates code against learned patterns
+- **Auto-fixing** - Suggests and applies fixes for inconsistencies
+- **Multi-aspect Analysis** - Checks naming, structure, style, and architecture
+
+### Pattern Categories
+
+1. **Naming Conventions**:
+   - Function naming (camelCase, snake_case, etc.)
+   - Variable naming patterns
+   - Class naming standards
+   - Common prefixes/suffixes
+
+2. **Code Structure**:
+   - Import organization
+   - File organization
+   - Module boundaries
+   - Export patterns
+
+3. **Style Consistency**:
+   - Indentation standards
+   - Line length limits
+   - Comment styles
+   - Formatting rules
+
+4. **Architecture Compliance**:
+   - Layer separation (MVC, Clean Architecture)
+   - Dependency rules
+   - Module boundaries
+   - Anti-pattern detection
+
+### Usage
+
+1. **Learn Project Patterns**:
+   ```vim
+   :AILearnPatterns
+   ```
+   Analyzes your entire codebase to learn conventions.
+
+2. **Check Current File**:
+   ```vim
+   :AICheckConsistency
+   ```
+   Shows consistency issues in the current file.
+
+3. **Enable Auto-Check**:
+   ```vim
+   :AIEnableConsistencyCheck
+   ```
+   Automatically checks files on save and shows issues as diagnostics.
+
+4. **Fix Issues**:
+   In the consistency report buffer:
+   - Press `f` to fix issue at cursor
+   - Press `a` to apply all fixes
+   - Press `i` to ignore an issue
+
+### Example Consistency Report
+```
+# Consistency Report
+
+Found 3 consistency issues
+
+## Naming
+⚠️ Line 15: function 'get_user_data' doesn't follow camelCase convention
+⚠️ Line 23: variable 'UserName' doesn't follow camelCase convention
+
+## Import Order
+💡 Line 3: Import 'react' should come before 'external' imports
+
+## Quick Actions
+- Press `f` to auto-fix issues
+- Press `i` to ignore an issue
+- Press `a` to apply all fixes
+```
 
 ## Configuration
-
-Configure in your `init.lua`:
 
 ```lua
 require('ai').setup({
   -- Provider settings
-  provider = 'openai',  -- 'openai', 'anthropic', or 'ollama'
+  providers = {
+    openai = {
+      api_key = vim.env.OPENAI_API_KEY,
+      model = "gpt-4-turbo-preview",
+      temperature = 0.7,
+    },
+    anthropic = {
+      api_key = vim.env.ANTHROPIC_API_KEY,
+      model = "claude-3-opus-20240229",
+    },
+  },
   
-  -- Context extraction
+  -- Feature toggles
+  features = {
+    auto_complete = true,
+    context_tracking = true,
+    pair_programming = false,
+    consistency_check = true,
+  },
+  
+  -- Context settings
   context = {
-    max_lines = 200,
+    max_lines = 100,
     include_imports = true,
-    include_diagnostics = true,
+    include_related = true,
   },
   
-  -- Performance
-  performance = {
-    cache_responses = true,
-    cache_ttl_seconds = 3600,
-    max_concurrent_requests = 3,
+  -- TDD settings
+  tdd = {
+    auto_implement = true,
+    watch_on_save = false,
+    coverage_threshold = 80,
   },
   
-  -- Search
-  search = {
-    exclude_dirs = {'.git', 'node_modules', 'dist'},
-    include_extensions = {'lua', 'py', 'js', 'ts', 'go'},
-    max_file_size = 1024 * 1024, -- 1MB
-    use_embeddings = true,
-    embedding_model = "text-embedding-3-small", -- or "text-embedding-3-large"
-    embedding_dimensions = 512, -- Lower = faster/cheaper, Higher = better quality
+  -- Consistency settings
+  consistency = {
+    auto_check = false,
+    severity = "warning", -- hint, warning, error
+    ignore_patterns = {
+      "test_*",
+      "*.spec.js",
+    },
   },
 })
+```
+
+## Key Mappings
+
+Default mappings under `<leader>a`:
+
+```
+<leader>ac - Complete code
+<leader>ae - Explain code
+<leader>ar - Refactor code
+<leader>as - Search code
+<leader>ap - Plan implementation
+<leader>at - Open chat
+<leader>ag - Generate tests
+<leader>ad - Debug error
+<leader>am - Generate commit message
+<leader>aw - Web search
+<leader>aq - Query with tools
+<leader>ax - Transform code
+<leader>ai - Implement from test
+<leader>ao - Check consistency
 ```
 
 ## Architecture
 
 The AI assistant is modular and extensible:
 
-- **context.lua** - Tree-sitter based context extraction with caching
-- **llm.lua** - Multi-provider LLM interface with queueing
-- **edit.lua** - Safe code editing with validation
-- **refactor.lua** - Refactoring operations
-- **search.lua** - Code search with symbol extraction
-- **planner.lua** - Project planning and execution
-- **commands.lua** - User-facing commands
-- **config.lua** - Configuration management
-
-## Performance Features
-
-- **Context caching** - Avoids re-parsing unchanged code
-- **Response caching** - Caches LLM responses
-- **Request queueing** - Handles rate limits gracefully
-- **Streaming** - Supports streaming for long responses
-- **Cross-platform** - Works on Windows, macOS, and Linux
-
-## Troubleshooting
-
-1. Run `:checkhealth ai` to diagnose issues
-2. Check API keys are set correctly
-3. Ensure Tree-sitter parsers are installed
-4. Check `:messages` for error details
-
-## Future Enhancements
-
-- True semantic search with embeddings
-- More refactoring operations
-- Multi-file edits
-- Test generation
-- Documentation generation
-
-## License
-
-MIT
-
-## Semantic Search with Embeddings
-
-The AI assistant supports true semantic search using OpenAI's latest embedding models. This allows you to search for code by meaning, not just keywords.
-
-### Embedding Models
-
-We use OpenAI's newest embedding models (released January 2024):
-
-- **text-embedding-3-small** (default):
-  - 5x cheaper than ada-002 ($0.02 per 1M tokens)
-  - Higher quality embeddings
-  - Configurable dimensions (256-1536)
-  - Default: 512 dimensions for balance of quality/speed
-
-- **text-embedding-3-large**:
-  - Best quality available
-  - Configurable dimensions (256-3072)
-  - Use for critical search accuracy
-
-### Configuration
-
-```lua
-search = {
-  use_embeddings = true,
-  embedding_model = "text-embedding-3-small", -- or "text-embedding-3-large"
-  embedding_dimensions = 512, -- Lower = faster/cheaper, Higher = better quality
-}
+```
+ai/
+├── init.lua           # Main module loader
+├── config.lua         # Configuration management
+├── context.lua        # Context extraction
+├── llm.lua           # LLM provider abstraction
+├── edit.lua          # Safe code editing
+├── refactor.lua      # Refactoring operations
+├── search.lua        # Semantic search
+├── testing.lua       # Test generation
+├── debug.lua         # Error analysis
+├── chat.lua          # Interactive chat
+├── multifile.lua     # Multi-file operations
+├── planner.lua       # Planning system
+├── embeddings.lua    # Embedding management
+├── websearch.lua     # Web search integration
+├── tools.lua         # Tool calling system
+├── ast_transform.lua # AST transformations
+├── intelligence.lua  # Code intelligence
+├── pair.lua          # Pair programming
+├── git.lua           # Git integration
+├── tdd.lua           # TDD assistant
+├── consistency.lua   # Consistency enforcer
+├── health.lua        # Health checks
+└── commands.lua      # Command definitions
 ```
 
-### How it Works
+## Requirements
 
-1. **Code Chunking**: Files are intelligently split into semantic chunks (functions, classes) using Tree-sitter
-2. **Embedding Generation**: Each chunk is converted to a vector embedding using the configured model
-3. **Similarity Search**: Your query is embedded and compared against all code chunks using cosine similarity
-4. **Smart Results**: Results are ranked by semantic similarity, with keyword search as fallback
-
-### Enabling Embeddings
-
-```vim
-" Enable embeddings-based search
-:AIEnableEmbeddings
-
-" Re-index workspace with embeddings (required after enabling)
-:AIIndexWorkspace
-
-" Search semantically
-:AISearch how to handle user authentication
-```
-
-### Performance Benefits
-
-The new models offer significant improvements:
-
-- **5x cost reduction**: text-embedding-3-small costs $0.02 per 1M tokens (vs $0.10 for ada-002)
-- **Better accuracy**: Improved embedding quality for code understanding
-- **Flexible dimensions**: Reduce dimensions to save storage and improve speed
-- **Larger context**: Supports up to 8,191 tokens per embedding
-
-### Dimension Trade-offs
-
-| Dimensions | Quality | Speed    | Storage  | Use Case                        |
-|------------|---------|----------|----------|---------------------------------|
-| 256        | Good    | Fastest  | Smallest | Quick searches, large codebases |
-| 512        | Better  | Fast     | Smallest | Default, balanced performance   |
-| 1024       | Best    | Moderate | Moderate | High accuracy needed            |
-| 1536/3072  | Maximum | Slower   | Larger   | Critical search accuracy        |
-
-### Performance Considerations
-
-- Initial indexing with embeddings takes longer (processes files in batches)
-- Embeddings are cached locally in `~/.cache/nvim/ai_embeddings.json`
-- Each file generates multiple embeddings (one per function/class)
-- API costs are very low: ~$0.00002 per file with the new models
-
-### Fallback Behavior
-
-- If OpenAI is not available, falls back to n-gram based embeddings (less accurate but works offline)
-- If no embeddings exist, falls back to keyword search
-- Keyword results supplement semantic results when needed
-
-## Interactive Chat
-
-The AI assistant now includes an interactive chat panel for conversational coding assistance:
-
-### Opening the Chat
-
-Use `:AIChat` or map it to a key:
-
-```lua
-vim.keymap.set('n', '<leader>ac', ':AIChat<CR>', { desc = 'AI Chat' })
-```
-
-### Chat Features
-
-The chat window provides a persistent conversation with the AI:
-
-- **Context-aware**: Include code context using special commands
-- **Streaming responses**: See the AI's response as it's generated
-- **Code blocks**: Apply or copy code directly from the chat
-- **Persistent history**: Continue conversations across sessions
-
-### Context Commands
-
-When typing a message, use these special commands to include context:
-
-- `@buffer` - Include the entire current buffer
-- `@selection` - Include the last visual selection
-- `@file:path/to/file.lua` - Include a specific file
-
-Example:
-
-```
-Can you explain this function? @buffer
-```
-
-### Chat Window Commands
-
-While in the chat window:
-
-- `i`, `o` - Start typing a new message
-- `a` - Apply code block at cursor to the previous buffer
-- `y` - Copy code block at cursor to clipboard
-- `d` - Delete chat history
-- `q`, `<Esc>` - Close chat window
-
-### Example Workflow
-
-1. Open a file you're working on
-2. Run `:AIChat` to open the chat panel
-3. Type: "How can I optimize this function? @buffer"
-4. Review the AI's suggestions
-5. Place cursor on a code block and press `a` to apply it
-6. Continue the conversation with follow-up questions
-
-The chat maintains context across messages, making it ideal for:
-
-- Debugging sessions
-- Code reviews
-- Learning new concepts
-- Iterative development
-
-## Multi-File Operations
-
-The AI assistant now supports complex refactorings across multiple files with transaction support:
-
-### Symbol Renaming
-
-Rename symbols (functions, variables, classes) across your entire codebase:
-
-```vim
-:AIRenameSymbol [new_name]
-```
-
-- Finds all occurrences using ripgrep
-- Shows preview of all changes before applying
-- Supports rollback if something goes wrong
-
-### Module Extraction
-
-Extract related functionality into a new module:
-
-```vim
-:AIExtractModule [module_name]
-```
-
-The AI will:
-
-1. Analyze which code should be moved
-2. Create the new module file
-3. Update imports in affected files
-4. Preview all changes before applying
-
-### Transaction System
-
-All multi-file operations use a transaction system:
-
-- Preview changes before applying
-- Automatic backup of modified files
-- Rollback capability if errors occur
-- Press `a` to apply, `q` to cancel in preview
-
-## AI-Powered Testing
-
-Generate and maintain comprehensive test suites automatically:
-
-### Generate Tests
-
-```vim
-:AIGenerateTests [framework]
-```
-
-- Automatically detects test framework (Jest, pytest, etc.)
-- Generates tests covering:
-  - Happy paths
-  - Edge cases
-  - Error conditions
-  - Type checking
-- Places tests in appropriate directory
-
-### Update Tests
-
-```vim
-:AIUpdateTests
-```
-
-Updates existing tests when implementation changes:
-
-- Matches API changes
-- Adds tests for new functionality
-- Removes obsolete tests
-- Preserves valid existing tests
-
-### Analyze Test Failures
-
-```vim
-:AIAnalyzeTestFailures [output]
-```
-
-- Parses test output or quickfix list
-- Identifies root causes
-- Suggests specific fixes
-- Distinguishes between test bugs and implementation bugs
-
-## Debugging Assistant
-
-Advanced debugging support with AI-powered analysis:
-
-### Error Analysis
-
-```vim
-:AIDebugError [error_text]
-```
-
-Analyzes stack traces and errors:
-
-- Parses stack traces for any language
-- Extracts relevant code context
-- Provides root cause analysis
-- Suggests specific fixes
-- Creates navigable report with quick jumps to error locations
-
-### Apply Fixes
-
-```vim
-:AIApplyFix
-```
-
-Apply suggested fixes from error analysis with preview.
-
-### Interactive Debug Session
-
-```vim
-:AIDebugSession
-```
-
-Start an AI-assisted debugging REPL:
-
-- Set breakpoints with `:break <line>`
-- Watch expressions with `:watch <expr>`
-- Evaluate code with `:eval <expr>`
-- Get AI guidance at each step
-
-### Performance Analysis
-
-```vim
-:AIAnalyzePerformance [profile_data]
-```
-
-Analyze performance profiles:
-
-- Identifies bottlenecks
-- Explains root causes
-- Suggests optimizations
-- Discusses trade-offs
-
-## Code Quality Tools
-
-### Generate Commit Messages
-
-```vim
-:AICommitMessage
-```
-
-Generates conventional commit messages from staged changes:
-
-- Follows Conventional Commits spec
-- Analyzes git diff
-- Suggests appropriate type and scope
-- Can be used directly in git commit buffer
-
-### Code Review
-
-```vim
-:AIReviewCode
-```
-
-Get AI code review for current function/file:
-
-- Checks for bugs and logic errors
-- Identifies performance issues
-- Spots security vulnerabilities
-- Suggests improvements
-- Follows language best practices
-
-## Web Search Integration
-
-The AI assistant can now search the internet for current information:
-
-### Direct Web Search
-
-```vim
-:AIWebSearch [query]
-```
-
-Search the web and display results with:
-
-- Title, URL, and snippet for each result
-- Number keys (1-9) to open URLs in browser
-- Press `f` on a result to fetch and display page content
-
-### Search and Summarize
-
-```vim
-:AIWebSummary [query]
-```
-
-Searches the web and provides an AI-generated summary of the findings.
-
-### Deep Research
-
-```vim
-:AIResearch [topic]
-```
-
-Performs comprehensive research:
-
-1. Generates multiple search queries
-2. Searches from different angles
-3. Synthesizes findings into a research document
-
-### Chat Integration
-
-Use `@web:` in the chat to search during conversation:
-
-```
-How do I use the new React 19 features? @web:React 19 new features guide
-```
-
-The AI will search the web and include results in its response.
-
-### Configuration
-
-Configure web search providers in your setup:
-
-```lua
-require('ai').setup({
-  web_search = {
-    default_provider = "duckduckgo", -- No API key required
-    -- For Google search:
-    -- default_provider = "google",
-    -- api_keys = {
-    --   google = "your-api-key",
-    --   google_search_engine_id = "your-search-engine-id",
-    -- },
-  },
-})
-```
-
-Supported providers:
-
-- **DuckDuckGo** - No API key required (default)
-- **Google** - Requires API key and search engine ID
-- **Brave** - Requires API key
-
-## AI Tool Calling
-
-The AI can now autonomously use tools to answer queries:
-
-### Query with Tools
-
-```vim
-:AIQuery What's the current weather in San Francisco?
-```
-
-The AI will:
-
-1. Recognize it needs current information
-2. Search the web automatically
-3. Provide an answer based on results
-
-### Available Tools
-
-The AI has access to:
-
-- **web_search** - Search for current information
-- **fetch_url** - Get content from specific URLs
-- **read_file** - Read local files
-- **list_files** - List directory contents
-
-### How It Works
-
-When you use `:AIQuery`, the AI can decide to use tools:
-
-```
-User: What are the latest CVEs for OpenSSL?
-
-AI: I'll search for the latest OpenSSL CVEs.
-<tool>web_search(query="OpenSSL CVE 2024 latest vulnerabilities")</tool>
-
-[After receiving results]
-
-Based on my search, here are the latest OpenSSL CVEs...
-```
-
-This makes the AI much more capable for:
-
-- Current events and news
-- Technical documentation lookups
-- Security advisories
-- Package versions and updates
-- API documentation
-- Troubleshooting with current information
-
-# AI Assistant for Neovim
-
-A Tree-sitter powered AI coding assistant that brings intelligent code completion, refactoring, and project understanding directly into Neovim.
-
-## Features
-
-### 🧠 Intelligent Context Extraction
-
-- Uses Tree-sitter for accurate code parsing
-- Understands function/class scope
-- Extracts imports and dependencies
-- Maintains cursor context for precise completions
-
-### 💬 Multi-Provider LLM Support
-
-- **OpenAI** (GPT-4, GPT-3.5) - with structured output support
-- **Anthropic** (Claude)
-- **Ollama** (Local models)
-- Request queueing for rate limit handling
-- Response caching for efficiency
-- Streaming support for long responses (OpenAI only)
-
-### ✏️ Smart Code Editing
-
-- Syntax-aware code insertion
-- Safe editing with validation
-- Rollback on syntax errors
-- Diff preview for changes
-- Maintains proper indentation
-
-### 🔧 Refactoring Tools
-
-- Extract function from selection
-- Rename symbols
-- Simplify complex logic
-- Add type annotations
-- Organize imports
-
-### 🔍 Code Search
-
-- **Semantic search with embeddings** (OpenAI)
-- **Keyword search** (all providers)
-- Symbol extraction (functions, classes, etc.)
-- Cross-platform file scanning
-- Configurable file filters
-- Similarity-based code discovery
-
-### 📋 AI Planning System
-
-- Multi-stage planning (understand → plan → review → execute)
-- Interactive Q&A for clarification
-- Project-aware with persistent memory
-- Learns coding patterns and conventions
-- Step-by-step execution with progress tracking
-
-## Installation
-
-### Prerequisites
-
-- Neovim 0.9+ with Tree-sitter support
+- Neovim 0.9+ 
 - Tree-sitter parsers for your languages
-- API key for your chosen LLM provider
+- API keys for AI providers (OpenAI/Anthropic/Ollama)
+- Git (for git integration features)
+- Internet connection (for web search features)
 
-### Setup
+## Performance Tips
 
-1. Ensure the AI module is in your Neovim config:
-
-```
-~/.config/nvim/lua/ai/
-```
-
-2. Set up your API key:
-
-```bash
-export OPENAI_API_KEY="your-key-here"
-# or
-export ANTHROPIC_API_KEY="your-key-here"
-```
-
-3. Install Tree-sitter parsers:
-
-```vim
-:TSInstall python javascript typescript lua
-```
-
-## Commands
-
-### General
-
-- `:AIComplete [instruction]` - Complete code at cursor with optional instruction
-- `:AIExplain` - Explain selected code
-- `:AITest` - Test AI setup
-- `:checkhealth ai` - Check AI assistant health
-
-### Refactoring
-
-- `:AIRefactor <instruction>` - Refactor with custom instruction
-- `:AIExtractFunction` - Extract selection to function
-- `:AIRename <new_name>` - Rename symbol
-- `:AISimplifyLogic` - Simplify complex code
-- `:AIAddTypes` - Add type annotations
-- `:AIOrganizeImports` - Organize imports
-
-### Search
-
-- `:AISearch <query>` - Search codebase
-- `:AIFindDefinition` - Find symbol definition
-- `:AIFindReferences` - Find symbol references
-- `:AIIndexWorkspace` - Index project files
-
-### Planning
-
-- `:AIPlan [task]` - Create implementation plan
-- `:AIExecutePlan` - Execute current plan
-- `:AIShowPlan` - View current plan
-- `:AIAnalyzeProject` - Analyze project structure
-- `:AILearnPatterns` - Learn coding patterns
-
-### Inline Completion
-
-- In insert mode: `<Tab>` to accept, `<Esc>` to dismiss
-
-## Key Mappings
-
-Default mappings with `<leader>a` prefix:
-
-| Key           | Description          |
-|---------------|----------------------|
-| `<leader>ac`  | Complete with prompt |
-| `<leader>ae`  | Explain code         |
-| `<leader>arr` | Refactor (custom)    |
-| `<leader>arf` | Extract function     |
-| `<leader>ars` | Simplify logic       |
-| `<leader>art` | Add types            |
-| `<leader>aro` | Organize imports     |
-| `<leader>arR` | Rename symbol        |
-| `<leader>a/`  | Search semantically  |
-| `<leader>ad`  | Find definition      |
-| `<leader>aD`  | Find references      |
-| `<leader>app` | Create plan          |
-| `<leader>ape` | Execute plan         |
-| `<leader>apP` | Show plan            |
-| `<leader>apA` | Analyze project      |
-| `<leader>apL` | Learn patterns       |
-| `<leader>au`  | Undo last AI edit    |
-| `<leader>aI`  | Index workspace      |
-
-## Configuration
-
-Configure in your `init.lua`:
-
-```lua
-require('ai').setup({
-  -- Provider settings
-  provider = 'openai',  -- 'openai', 'anthropic', or 'ollama'
-  
-  -- Context extraction
-  context = {
-    max_lines = 200,
-    include_imports = true,
-    include_diagnostics = true,
-  },
-  
-  -- Performance
-  performance = {
-    cache_responses = true,
-    cache_ttl_seconds = 3600,
-    max_concurrent_requests = 3,
-  },
-  
-  -- Search
-  search = {
-    exclude_dirs = {'.git', 'node_modules', 'dist'},
-    include_extensions = {'lua', 'py', 'js', 'ts', 'go'},
-    max_file_size = 1024 * 1024, -- 1MB
-    use_embeddings = true,
-    embedding_model = "text-embedding-3-small", -- or "text-embedding-3-large"
-    embedding_dimensions = 512, -- Lower = faster/cheaper, Higher = better quality
-  },
-})
-```
-
-## Architecture
-
-The AI assistant is modular and extensible:
-
-- **context.lua** - Tree-sitter based context extraction with caching
-- **llm.lua** - Multi-provider LLM interface with queueing
-- **edit.lua** - Safe code editing with validation
-- **refactor.lua** - Refactoring operations
-- **search.lua** - Code search with symbol extraction
-- **planner.lua** - Project planning and execution
-- **commands.lua** - User-facing commands
-- **config.lua** - Configuration management
-
-## Performance Features
-
-- **Context caching** - Avoids re-parsing unchanged code
-- **Response caching** - Caches LLM responses
-- **Request queueing** - Handles rate limits gracefully
-- **Streaming** - Supports streaming for long responses
-- **Cross-platform** - Works on Windows, macOS, and Linux
+1. **Use local models** (Ollama) for faster responses
+2. **Enable caching** to avoid redundant API calls
+3. **Limit context size** for large files
+4. **Use embeddings** for large codebases
+5. **Index project** once for better navigation
 
 ## Troubleshooting
 
-1. Run `:checkhealth ai` to diagnose issues
-2. Check API keys are set correctly
-3. Ensure Tree-sitter parsers are installed
-4. Check `:messages` for error details
+Run `:checkhealth ai` to diagnose issues.
 
-## Future Enhancements
+Common issues:
+- **No API key**: Set environment variables
+- **Timeout errors**: Increase timeout in config
+- **Context too large**: Reduce max_lines in config
+- **Parser errors**: Install Tree-sitter parsers
 
-- True semantic search with embeddings
-- More refactoring operations
-- Multi-file edits
-- Test generation
-- Documentation generation
+## Contributing
+
+Contributions welcome! The codebase is modular and well-documented.
+
+Areas for contribution:
+- Additional language support
+- New transformation patterns
+- Performance optimizations
+- Additional tool integrations
+- UI improvements
 
 ## License
 
 MIT
-
-## Semantic Search with Embeddings
-
-The AI assistant supports true semantic search using OpenAI's latest embedding models. This allows you to search for code by meaning, not just keywords.
-
-### Embedding Models
-
-We use OpenAI's newest embedding models (released January 2024):
-
-- **text-embedding-3-small** (default):
-  - 5x cheaper than ada-002 ($0.02 per 1M tokens)
-  - Higher quality embeddings
-  - Configurable dimensions (256-1536)
-  - Default: 512 dimensions for balance of quality/speed
-
-- **text-embedding-3-large**:
-  - Best quality available
-  - Configurable dimensions (256-3072)
-  - Use for critical search accuracy
-
-### Configuration
-
-```lua
-search = {
-  use_embeddings = true,
-  embedding_model = "text-embedding-3-small", -- or "text-embedding-3-large"
-  embedding_dimensions = 512, -- Lower = faster/cheaper, Higher = better quality
-}
-```
-
-### How it Works
-
-1. **Code Chunking**: Files are intelligently split into semantic chunks (functions, classes) using Tree-sitter
-2. **Embedding Generation**: Each chunk is converted to a vector embedding using the configured model
-3. **Similarity Search**: Your query is embedded and compared against all code chunks using cosine similarity
-4. **Smart Results**: Results are ranked by semantic similarity, with keyword search as fallback
-
-### Enabling Embeddings
-
-```vim
-" Enable embeddings-based search
-:AIEnableEmbeddings
-
-" Re-index workspace with embeddings (required after enabling)
-:AIIndexWorkspace
-
-" Search semantically
-:AISearch how to handle user authentication
-```
-
-### Performance Benefits
-
-The new models offer significant improvements:
-
-- **5x cost reduction**: text-embedding-3-small costs $0.02 per 1M tokens (vs $0.10 for ada-002)
-- **Better accuracy**: Improved embedding quality for code understanding
-- **Flexible dimensions**: Reduce dimensions to save storage and improve speed
-- **Larger context**: Supports up to 8,191 tokens per embedding
-
-### Dimension Trade-offs
-
-| Dimensions | Quality | Speed | Storage | Use Case |
-|------------|---------|-------|---------|----------|
-| 256 | Good | Fastest | Smallest | Quick searches, large codebases |
-| 512 | Better | Fast | Small | Default, balanced performance |
-| 1024 | Best | Moderate | Moderate | High accuracy needed |
-| 1536/3072 | Maximum | Slower | Larger | Critical search accuracy |
-
-### Performance Considerations
-
-- Initial indexing with embeddings takes longer (processes files in batches)
-- Embeddings are cached locally in `~/.cache/nvim/ai_embeddings.json`
-- Each file generates multiple embeddings (one per function/class)
-- API costs are very low: ~$0.00002 per file with the new models
-
-### Fallback Behavior
-
-- If OpenAI is not available, falls back to n-gram based embeddings (less accurate but works offline)
-- If no embeddings exist, falls back to keyword search
-- Keyword results supplement semantic results when needed
-
-## Interactive Chat
-
-The AI assistant now includes an interactive chat panel for conversational coding assistance:
-
-### Opening the Chat
-
-Use `:AIChat` or map it to a key:
-
-```lua
-vim.keymap.set('n', '<leader>ac', ':AIChat<CR>', { desc = 'AI Chat' })
-```
-
-### Chat Features
-
-The chat window provides a persistent conversation with the AI:
-
-- **Context-aware**: Include code context using special commands
-- **Streaming responses**: See the AI's response as it's generated
-- **Code blocks**: Apply or copy code directly from the chat
-- **Persistent history**: Continue conversations across sessions
-
-### Context Commands
-
-When typing a message, use these special commands to include context:
-
-- `@buffer` - Include the entire current buffer
-- `@selection` - Include the last visual selection
-- `@file:path/to/file.lua` - Include a specific file
-
-Example:
-
-```
-Can you explain this function? @buffer
-```
-
-### Chat Window Commands
-
-While in the chat window:
-
-- `i`, `o` - Start typing a new message
-- `a` - Apply code block at cursor to the previous buffer
-- `y` - Copy code block at cursor to clipboard
-- `d` - Delete chat history
-- `q`, `<Esc>` - Close chat window
-
-### Example Workflow
-
-1. Open a file you're working on
-2. Run `:AIChat` to open the chat panel
-3. Type: "How can I optimize this function? @buffer"
-4. Review the AI's suggestions
-5. Place cursor on a code block and press `a` to apply it
-6. Continue the conversation with follow-up questions
-
-The chat maintains context across messages, making it ideal for:
-
-- Debugging sessions
-- Code reviews
-- Learning new concepts
-- Iterative development
-
-## Multi-File Operations
-
-The AI assistant now supports complex refactorings across multiple files with transaction support:
-
-### Symbol Renaming
-
-Rename symbols (functions, variables, classes) across your entire codebase:
-
-```vim
-:AIRenameSymbol [new_name]
-```
-
-- Finds all occurrences using ripgrep
-- Shows preview of all changes before applying
-- Supports rollback if something goes wrong
-
-### Module Extraction
-
-Extract related functionality into a new module:
-
-```vim
-:AIExtractModule [module_name]
-```
-
-The AI will:
-
-1. Analyze which code should be moved
-2. Create the new module file
-3. Update imports in affected files
-4. Preview all changes before applying
-
-### Transaction System
-
-All multi-file operations use a transaction system:
-
-- Preview changes before applying
-- Automatic backup of modified files
-- Rollback capability if errors occur
-- Press `a` to apply, `q` to cancel in preview
-
-## AI-Powered Testing
-
-Generate and maintain comprehensive test suites automatically:
-
-### Generate Tests
-
-```vim
-:AIGenerateTests [framework]
-```
-
-- Automatically detects test framework (Jest, pytest, etc.)
-- Generates tests covering:
-  - Happy paths
-  - Edge cases
-  - Error conditions
-  - Type checking
-- Places tests in appropriate directory
-
-### Update Tests
-
-```vim
-:AIUpdateTests
-```
-
-Updates existing tests when implementation changes:
-
-- Matches API changes
-- Adds tests for new functionality
-- Removes obsolete tests
-- Preserves valid existing tests
-
-### Analyze Test Failures
-
-```vim
-:AIAnalyzeTestFailures [output]
-```
-
-- Parses test output or quickfix list
-- Identifies root causes
-- Suggests specific fixes
-- Distinguishes between test bugs and implementation bugs
-
-## Debugging Assistant
-
-Advanced debugging support with AI-powered analysis:
-
-### Error Analysis
-
-```vim
-:AIDebugError [error_text]
-```
-
-Analyzes stack traces and errors:
-
-- Parses stack traces for any language
-- Extracts relevant code context
-- Provides root cause analysis
-- Suggests specific fixes
-- Creates navigable report with quick jumps to error locations
-
-### Apply Fixes
-
-```vim
-:AIApplyFix
-```
-
-Apply suggested fixes from error analysis with preview.
-
-### Interactive Debug Session
-
-```vim
-:AIDebugSession
-```
-
-Start an AI-assisted debugging REPL:
-
-- Set breakpoints with `:break <line>`
-- Watch expressions with `:watch <expr>`
-- Evaluate code with `:eval <expr>`
-- Get AI guidance at each step
-
-### Performance Analysis
-
-```vim
-:AIAnalyzePerformance [profile_data]
-```
-
-Analyze performance profiles:
-
-- Identifies bottlenecks
-- Explains root causes
-- Suggests optimizations
-- Discusses trade-offs
-
-## Code Quality Tools
-
-### Generate Commit Messages
-
-```vim
-:AICommitMessage
-```
-
-Generates conventional commit messages from staged changes:
-
-- Follows Conventional Commits spec
-- Analyzes git diff
-- Suggests appropriate type and scope
-- Can be used directly in git commit buffer
-
-### Code Review
-
-```vim
-:AIReviewCode
-```
-
-Get AI code review for current function/file:
-
-- Checks for bugs and logic errors
-- Identifies performance issues
-- Spots security vulnerabilities
-- Suggests improvements
-- Follows language best practices
-
-## Production-Ready Features
-
-This plugin is designed for serious, production codebases:
-
-1. **Transaction Support**: All multi-file operations can be previewed and rolled back
-2. **Framework Detection**: Automatically detects and adapts to your project's tools
-3. **Error Recovery**: Graceful handling of failures with automatic rollback
-4. **Context Awareness**: Understands your project structure and patterns
-5. **Language Agnostic**: Works with any language supported by Tree-sitter
-
-## Example Workflows
-
-### Test-Driven Development
-
-1. Write implementation
-2. Run `:AIGenerateTests` to create comprehensive tests
-3. Make changes to implementation
-4. Run `:AIUpdateTests` to keep tests in sync
-
-### Debugging Production Issues
-
-1. Copy error/stack trace
-2. Run `:AIDebugError` to analyze
-3. Navigate to error locations with number keys
-4. Review suggested fixes
-5. Run `:AIApplyFix` to apply changes
-
-### Large-Scale Refactoring
-
-1. Run `:AIRenameSymbol` to rename across codebase
-2. Use `:AIExtractModule` to reorganize code
-3. Preview all changes before applying
-4. Rollback if needed
-
-### Code Quality Workflow
-
-1. Make changes
-2. Run `:AIReviewCode` for AI review
-3. Stage changes
-4. Run `:AICommitMessage` for commit message
-5. Use generated message with confidence

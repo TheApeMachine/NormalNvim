@@ -21,6 +21,12 @@ local modules = {
   'ai.debug',
   'ai.websearch',
   'ai.tools',
+  'ai.ast_transform',
+  'ai.intelligence',
+  'ai.pair',
+  'ai.git',
+  'ai.tdd',
+  'ai.consistency',
 }
 
 for _, module in ipairs(modules) do
@@ -45,7 +51,13 @@ M.testing = require('ai.testing')
 M.debug = require('ai.debug')
 M.websearch = require('ai.websearch')
 M.tools = require('ai.tools')
+M.ast_transform = require('ai.ast_transform')
+M.intelligence = require('ai.intelligence')
+M.pair = require('ai.pair')
+M.git = require('ai.git')
 M.commands = require('ai.commands')
+M.tdd = require('ai.tdd')
+M.consistency = require('ai.consistency')
 
 -- Initialize the module
 function M.setup(opts)
@@ -77,6 +89,35 @@ function M.setup(opts)
       end, 100) -- Small delay to avoid too frequent updates
     end,
   })
+  
+  -- Initialize sub-modules
+  M.embeddings.setup()
+  M.intelligence.setup()
+  M.consistency.setup()
+  
+  -- Create WhichKey mappings
+  local ok, which_key = pcall(require, 'which-key')
+  if ok then
+    which_key.register({
+      ['<leader>a'] = {
+        name = '+AI',
+        c = { '<cmd>AIComplete<cr>', 'Complete code' },
+        e = { '<cmd>AIExplain<cr>', 'Explain code' },
+        r = { '<cmd>AIRefactor<cr>', 'Refactor code' },
+        s = { '<cmd>AISearch<cr>', 'Search code' },
+        p = { '<cmd>AIPlan<cr>', 'Plan implementation' },
+        t = { '<cmd>AIChat<cr>', 'Open chat' },
+        g = { '<cmd>AIGenerateTests<cr>', 'Generate tests' },
+        d = { '<cmd>AIDebugError<cr>', 'Debug error' },
+        m = { '<cmd>AICommitMessage<cr>', 'Generate commit message' },
+        w = { '<cmd>AIWebSearch<cr>', 'Web search' },
+        q = { '<cmd>AIQuery<cr>', 'Query with tools' },
+        x = { '<cmd>AITransform<cr>', 'Transform code' },
+        i = { '<cmd>AIImplementFromTest<cr>', 'Implement from test' },
+        o = { '<cmd>AICheckConsistency<cr>', 'Check consistency' },
+      }
+    }, { mode = 'n' })
+  end
   
   vim.notify("AI Assistant initialized", vim.log.levels.INFO)
 end

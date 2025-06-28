@@ -299,3 +299,255 @@ The new models offer significant improvements:
 - If OpenAI is not available, falls back to n-gram based embeddings (less accurate but works offline)
 - If no embeddings exist, falls back to keyword search
 - Keyword results supplement semantic results when needed
+
+## Interactive Chat
+
+The AI assistant now includes an interactive chat panel for conversational coding assistance:
+
+### Opening the Chat
+
+Use `:AIChat` or map it to a key:
+
+```lua
+vim.keymap.set('n', '<leader>ac', ':AIChat<CR>', { desc = 'AI Chat' })
+```
+
+### Chat Features
+
+The chat window provides a persistent conversation with the AI:
+
+- **Context-aware**: Include code context using special commands
+- **Streaming responses**: See the AI's response as it's generated
+- **Code blocks**: Apply or copy code directly from the chat
+- **Persistent history**: Continue conversations across sessions
+
+### Context Commands
+
+When typing a message, use these special commands to include context:
+
+- `@buffer` - Include the entire current buffer
+- `@selection` - Include the last visual selection
+- `@file:path/to/file.lua` - Include a specific file
+
+Example:
+```
+Can you explain this function? @buffer
+```
+
+### Chat Window Commands
+
+While in the chat window:
+
+- `i`, `o` - Start typing a new message
+- `a` - Apply code block at cursor to the previous buffer
+- `y` - Copy code block at cursor to clipboard
+- `d` - Delete chat history
+- `q`, `<Esc>` - Close chat window
+
+### Example Workflow
+
+1. Open a file you're working on
+2. Run `:AIChat` to open the chat panel
+3. Type: "How can I optimize this function? @buffer"
+4. Review the AI's suggestions
+5. Place cursor on a code block and press `a` to apply it
+6. Continue the conversation with follow-up questions
+
+The chat maintains context across messages, making it ideal for:
+- Debugging sessions
+- Code reviews
+- Learning new concepts
+- Iterative development
+
+## Multi-File Operations
+
+The AI assistant now supports complex refactorings across multiple files with transaction support:
+
+### Symbol Renaming
+
+Rename symbols (functions, variables, classes) across your entire codebase:
+
+```vim
+:AIRenameSymbol [new_name]
+```
+
+- Finds all occurrences using ripgrep
+- Shows preview of all changes before applying
+- Supports rollback if something goes wrong
+
+### Module Extraction
+
+Extract related functionality into a new module:
+
+```vim
+:AIExtractModule [module_name]
+```
+
+The AI will:
+1. Analyze which code should be moved
+2. Create the new module file
+3. Update imports in affected files
+4. Preview all changes before applying
+
+### Transaction System
+
+All multi-file operations use a transaction system:
+- Preview changes before applying
+- Automatic backup of modified files
+- Rollback capability if errors occur
+- Press `a` to apply, `q` to cancel in preview
+
+## AI-Powered Testing
+
+Generate and maintain comprehensive test suites automatically:
+
+### Generate Tests
+
+```vim
+:AIGenerateTests [framework]
+```
+
+- Automatically detects test framework (Jest, pytest, etc.)
+- Generates tests covering:
+  - Happy paths
+  - Edge cases
+  - Error conditions
+  - Type checking
+- Places tests in appropriate directory
+
+### Update Tests
+
+```vim
+:AIUpdateTests
+```
+
+Updates existing tests when implementation changes:
+- Matches API changes
+- Adds tests for new functionality
+- Removes obsolete tests
+- Preserves valid existing tests
+
+### Analyze Test Failures
+
+```vim
+:AIAnalyzeTestFailures [output]
+```
+
+- Parses test output or quickfix list
+- Identifies root causes
+- Suggests specific fixes
+- Distinguishes between test bugs and implementation bugs
+
+## Debugging Assistant
+
+Advanced debugging support with AI-powered analysis:
+
+### Error Analysis
+
+```vim
+:AIDebugError [error_text]
+```
+
+Analyzes stack traces and errors:
+- Parses stack traces for any language
+- Extracts relevant code context
+- Provides root cause analysis
+- Suggests specific fixes
+- Creates navigable report with quick jumps to error locations
+
+### Apply Fixes
+
+```vim
+:AIApplyFix
+```
+
+Apply suggested fixes from error analysis with preview.
+
+### Interactive Debug Session
+
+```vim
+:AIDebugSession
+```
+
+Start an AI-assisted debugging REPL:
+- Set breakpoints with `:break <line>`
+- Watch expressions with `:watch <expr>`
+- Evaluate code with `:eval <expr>`
+- Get AI guidance at each step
+
+### Performance Analysis
+
+```vim
+:AIAnalyzePerformance [profile_data]
+```
+
+Analyze performance profiles:
+- Identifies bottlenecks
+- Explains root causes
+- Suggests optimizations
+- Discusses trade-offs
+
+## Code Quality Tools
+
+### Generate Commit Messages
+
+```vim
+:AICommitMessage
+```
+
+Generates conventional commit messages from staged changes:
+- Follows Conventional Commits spec
+- Analyzes git diff
+- Suggests appropriate type and scope
+- Can be used directly in git commit buffer
+
+### Code Review
+
+```vim
+:AIReviewCode
+```
+
+Get AI code review for current function/file:
+- Checks for bugs and logic errors
+- Identifies performance issues
+- Spots security vulnerabilities
+- Suggests improvements
+- Follows language best practices
+
+## Production-Ready Features
+
+This plugin is designed for serious, production codebases:
+
+1. **Transaction Support**: All multi-file operations can be previewed and rolled back
+2. **Framework Detection**: Automatically detects and adapts to your project's tools
+3. **Error Recovery**: Graceful handling of failures with automatic rollback
+4. **Context Awareness**: Understands your project structure and patterns
+5. **Language Agnostic**: Works with any language supported by Tree-sitter
+
+## Example Workflows
+
+### Test-Driven Development
+1. Write implementation
+2. Run `:AIGenerateTests` to create comprehensive tests
+3. Make changes to implementation
+4. Run `:AIUpdateTests` to keep tests in sync
+
+### Debugging Production Issues
+1. Copy error/stack trace
+2. Run `:AIDebugError` to analyze
+3. Navigate to error locations with number keys
+4. Review suggested fixes
+5. Run `:AIApplyFix` to apply changes
+
+### Large-Scale Refactoring
+1. Run `:AIRenameSymbol` to rename across codebase
+2. Use `:AIExtractModule` to reorganize code
+3. Preview all changes before applying
+4. Rollback if needed
+
+### Code Quality Workflow
+1. Make changes
+2. Run `:AIReviewCode` for AI review
+3. Stage changes
+4. Run `:AICommitMessage` for commit message
+5. Use generated message with confidence

@@ -87,59 +87,64 @@ function M._should_index_file(filepath)
   return true
 end
 
--- Extract symbols from AST
-function M._extract_symbols(root, content, lang)
+-- Extract symbols from a parsed tree
+M._extract_symbols = function(filepath, content)
   local symbols = {}
   
-  -- Language-specific queries
-  local queries = {
-    lua = [[
-      (function_declaration name: (identifier) @name) @function
-      (assignment_statement
-        (variable_list
-          name: (identifier) @name)
-        (expression_list
-          value: (function_definition))) @function
-    ]],
-    python = [[
-      (function_definition name: (identifier) @name) @function
-      (class_definition name: (identifier) @name) @class
-    ]],
-    javascript = [[
-      (function_declaration name: (identifier) @name) @function
-      (class_declaration name: (identifier) @name) @class
-      (method_definition name: (property_identifier) @name) @method
-    ]],
-    typescript = [[
-      (function_declaration name: (identifier) @name) @function
-      (class_declaration name: (identifier) @name) @class
-      (method_definition name: (property_identifier) @name) @method
-      (interface_declaration name: (type_identifier) @name) @interface
-    ]],
+  -- Try to detect language from extension
+  local ext = filepath:match("%.([^%.]+)$")
+  if not ext then return symbols end
+  
+  local lang = nil
+  -- Map common extensions to Tree-sitter language names
+  local ext_to_lang = {
+    lua = "lua", py = "python", js = "javascript", ts = "typescript",
+    jsx = "javascript", tsx = "typescript", go = "go", rs = "rust",
+    c = "c", cpp = "cpp", h = "c", hpp = "cpp", java = "java",
+    rb = "ruby", php = "php", cs = "c_sharp"
   }
   
-  local query_string = queries[lang]
-  if not query_string then
-    -- Fallback: just extract function-like patterns
-    return symbols
-  end
+  lang = ext_to_lang[ext:lower()]
+  if not lang then return symbols end
   
-  local ok, query = pcall(vim.treesitter.query.parse, lang, query_string)
-  if not ok then
-    return symbols
-  end
+  -- Try to parse with Tree-sitter
+  local ok, parser = pcall(vim.treesitter.get_string_parser, content, lang)
+  if not ok or not parser then return symbols end
+  
+  local tree = parser:parse()[1]
+  if not tree then return symbols end
+  
+  local root = tree:root()
+  
+  -- Query for common symbol types
+  local query_string = [[
+    (function_declaration name: (identifier) @function.name)
+    (function_definition name: (identifier) @function.name)
+    (method_declaration name: (identifier) @method.name)
+    (method_definition name: (identifier) @method.name)
+    (class_declaration name: (identifier) @class.name)
+    (class_definition name: (identifier) @class.name)
+    (variable_declaration name: (identifier) @variable.name)
+    (assignment_statement left: (identifier) @variable.name)
+  ]]
+  
+  local ok_query, query = pcall(vim.treesitter.query.parse, lang, query_string)
+  if not ok_query then return symbols end
   
   for id, node in query:iter_captures(root, content) do
-    local name = query.captures[id]
-    local text = vim.treesitter.get_node_text(node, content)
+    local name = vim.treesitter.get_node_text(node, content)
+    local start_row, start_col, end_row, end_col = node:range()
     
-    if text and text ~= "" then
-      table.insert(symbols, {
-        name = text,
-        type = name,
-        line = node:start() + 1,
-      })
-    end
+    table.insert(symbols, {
+      name = name,
+      type = query.captures[id],
+      range = {
+        start_row = start_row,
+        start_col = start_col,
+        end_row = end_row,
+        end_col = end_col,
+      }
+    })
   end
   
   return symbols
@@ -184,7 +189,7 @@ function M.index_file(filepath)
     return nil
   end
   
-  -- Extract symbols using Tree-sitter if available
+  -- Extract symbols if possible
   local symbols = M._extract_symbols(filepath, content)
   
   return {

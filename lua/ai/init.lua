@@ -9,12 +9,16 @@ local modules = {
   'ai.config',
   'ai.context', 
   'ai.llm',
-  'ai.embeddings',
   'ai.edit',
   'ai.refactor',
   'ai.search',
+  'ai.embeddings',
   'ai.planner',
   'ai.commands',
+  'ai.chat',
+  'ai.multifile',
+  'ai.testing',
+  'ai.debug',
 }
 
 for _, module in ipairs(modules) do
@@ -23,6 +27,21 @@ for _, module in ipairs(modules) do
     vim.notify('Failed to load ' .. module .. ': ' .. err, vim.log.levels.ERROR)
   end
 end
+
+-- Export modules
+M.config = require('ai.config')
+M.context = require('ai.context')
+M.llm = require('ai.llm')
+M.edit = require('ai.edit')
+M.refactor = require('ai.refactor')
+M.search = require('ai.search')
+M.planner = require('ai.planner')
+M.embeddings = require('ai.embeddings')
+M.chat = require('ai.chat')
+M.multifile = require('ai.multifile')
+M.testing = require('ai.testing')
+M.debug = require('ai.debug')
+M.commands = require('ai.commands')
 
 -- Initialize the module
 function M.setup(opts)
@@ -35,12 +54,11 @@ function M.setup(opts)
   -- Setup commands
   M.commands.setup()
   
-  -- Don't auto-index on startup to avoid fast event context issues
-  -- Users can manually trigger indexing with <leader>aI
-  if M.config.get().search.auto_index then
-    -- Defer indexing to avoid startup issues
+  -- Initialize search index if enabled
+  local search = require('ai.search')
+  if M.config.get().search.index_on_startup then
     vim.defer_fn(function()
-      M.search.index_workspace()
+      search.index_workspace()
     end, 1000) -- Wait 1 second after startup
   end
   

@@ -556,4 +556,33 @@ M.request_stream = function(messages, opts, on_chunk, on_complete)
   return job
 end
 
+-- Request a conversation (multi-turn chat)
+M.request_conversation = function(messages, opts, callback)
+  opts = opts or {}
+  
+  -- Build prompt from messages
+  local prompt = ""
+  if #messages == 1 then
+    prompt = messages[1].content
+  else
+    -- For multi-turn, format as a conversation
+    for _, msg in ipairs(messages) do
+      if msg.role == "user" then
+        prompt = prompt .. "\nUser: " .. msg.content
+      elseif msg.role == "assistant" then
+        prompt = prompt .. "\nAssistant: " .. msg.content
+      elseif msg.role == "system" then
+        prompt = prompt .. "\nSystem: " .. msg.content
+      end
+    end
+  end
+  
+  -- Use streaming if requested
+  if opts.stream then
+    return M.request_stream(prompt, opts, callback)
+  else
+    return M.request(prompt, opts, callback)
+  end
+end
+
 return M 

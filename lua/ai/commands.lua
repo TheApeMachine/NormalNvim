@@ -674,6 +674,215 @@ function M.setup()
   end, {
     desc = "AI: Learn from codebase patterns",
   })
+  
+  -- Chat commands
+  vim.api.nvim_create_user_command('AIChat', function()
+    require('ai.chat').toggle()
+  end, {
+    desc = "Toggle AI chat window"
+  })
+  
+  -- Multi-file operation commands
+  vim.api.nvim_create_user_command('AIRenameSymbol', function(opts)
+    local old_name = vim.fn.expand('<cword>')
+    local new_name = opts.args
+    
+    if new_name == "" then
+      new_name = vim.fn.input("Rename '" .. old_name .. "' to: ")
+      if new_name == "" then
+        return
+      end
+    end
+    
+    require('ai.multifile').rename_symbol(old_name, new_name)
+  end, {
+    nargs = '?',
+    desc = "AI: Rename symbol across all files"
+  })
+  
+  vim.api.nvim_create_user_command('AIExtractModule', function(opts)
+    local module_name = opts.args
+    if module_name == "" then
+      module_name = vim.fn.input("New module name: ")
+      if module_name == "" then
+        return
+      end
+    end
+    
+    require('ai.multifile').extract_module(module_name)
+  end, {
+    nargs = '?',
+    desc = "AI: Extract functionality into a new module"
+  })
+  
+  -- Testing commands
+  vim.api.nvim_create_user_command('AIGenerateTests', function(opts)
+    require('ai.testing').generate_tests({
+      framework = opts.args ~= "" and opts.args or nil
+    })
+  end, {
+    nargs = '?',
+    desc = "AI: Generate unit tests for current function/class"
+  })
+  
+  vim.api.nvim_create_user_command('AIUpdateTests', function()
+    require('ai.testing').update_tests()
+  end, {
+    desc = "AI: Update tests to match implementation changes"
+  })
+  
+  vim.api.nvim_create_user_command('AIAnalyzeTestFailures', function(opts)
+    require('ai.testing').analyze_test_failures({
+      output = opts.args ~= "" and opts.args or nil
+    })
+  end, {
+    nargs = '?',
+    desc = "AI: Analyze test failures and suggest fixes"
+  })
+  
+  -- Debugging commands
+  vim.api.nvim_create_user_command('AIDebugError', function(opts)
+    require('ai.debug').analyze_error({
+      error = opts.args ~= "" and opts.args or nil
+    })
+  end, {
+    nargs = '?',
+    desc = "AI: Analyze error/stack trace"
+  })
+  
+  vim.api.nvim_create_user_command('AIApplyFix', function()
+    require('ai.debug').apply_fixes()
+  end, {
+    desc = "AI: Apply pending debug fixes"
+  })
+  
+  vim.api.nvim_create_user_command('AIDebugSession', function()
+    require('ai.debug').start_debug_session()
+  end, {
+    desc = "AI: Start interactive debug session"
+  })
+  
+  vim.api.nvim_create_user_command('AIAnalyzePerformance', function(opts)
+    local profile_data = opts.args
+    if profile_data == "" then
+      -- Try to get from current buffer
+      local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+      profile_data = table.concat(lines, "\n")
+    end
+    
+    require('ai.debug').analyze_performance({
+      profile = profile_data
+    })
+  end, {
+    nargs = '?',
+    desc = "AI: Analyze performance profile"
+  })
+  
+  -- Commit message generation
+  vim.api.nvim_create_user_command('AICommitMessage', function()
+    local diff = vim.fn.system('git diff --staged')
+    if diff == "" then
+      vim.notify("No staged changes", vim.log.levels.WARN)
+      return
+    end
+    
+    local prompt = [[
+Generate a commit message for these changes following Conventional Commits specification:
+
+``` 
+]] .. diff .. [[
+```
+
+Format:
+<type>(<scope>): <description>
+
+<body>
+
+<footer>
+
+Types: feat, fix, docs, style, refactor, perf, test, chore
+Keep the description under 50 characters.
+]]
+
+    require('ai.llm').request(prompt, { temperature = 0.3 }, function(response)
+      if response then
+        vim.schedule(function()
+          -- If in a git commit buffer, insert the message
+          if vim.bo.filetype == "gitcommit" then
+            local lines = vim.split(response, "\n")
+            vim.api.nvim_buf_set_lines(0, 0, 0, false, lines)
+          else
+            -- Otherwise show in a floating window
+            local buf = vim.api.nvim_create_buf(false, true)
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(response, "\n"))
+            
+            local width = math.min(80, vim.o.columns - 4)
+            local height = math.min(20, vim.o.lines - 4)
+            
+            local win = vim.api.nvim_open_win(buf, true, {
+              relative = 'editor',
+              row = math.floor((vim.o.lines - height) / 2),
+              col = math.floor((vim.o.columns - width) / 2),
+              width = width,
+              height = height,
+              style = 'minimal',
+              border = 'rounded',
+              title = ' Generated Commit Message ',
+              title_pos = 'center',
+            })
+            
+            -- Copy to clipboard on yank
+            vim.keymap.set('n', 'y', function()
+              vim.fn.setreg('+', response)
+              vim.notify("Commit message copied to clipboard")
+              vim.api.nvim_win_close(win, true)
+            end, { buffer = buf })
+          end
+        end)
+      end
+    end)
+  end, {
+    desc = "AI: Generate commit message from staged changes"
+  })
+  
+  -- Code review command
+  vim.api.nvim_create_user_command('AIReviewCode', function(opts)
+    local ctx = require('ai.context').collect()
+    if not ctx then
+      vim.notify("Could not extract context", vim.log.levels.ERROR)
+      return
+    end
+    
+    local prompt = [[
+Please review this code for:
+1. Potential bugs or logic errors
+2. Performance issues
+3. Security vulnerabilities
+4. Code style and best practices
+5. Suggestions for improvement
+
+Code:
+```]] .. ctx.language .. "\n" .. (ctx.node_text or ctx.current_line) .. [[
+```
+
+Provide specific, actionable feedback with examples where applicable.
+]]
+
+    require('ai.llm').request(prompt, { temperature = 0.3 }, function(response)
+      if response then
+        vim.schedule(function()
+          local buf = vim.api.nvim_create_buf(false, true)
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(response, "\n"))
+          vim.api.nvim_buf_set_option(buf, 'filetype', 'markdown')
+          
+          vim.cmd('vsplit')
+          vim.api.nvim_set_current_buf(buf)
+        end)
+      end
+    end)
+  end, {
+    desc = "AI: Review current code"
+  })
 end
 
 -- Show results in a floating window

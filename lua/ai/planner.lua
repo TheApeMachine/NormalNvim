@@ -657,6 +657,11 @@ function M._show_plan_window(plan, review)
   end, opts)
 end
 
+-- Get the current plan
+M.get_current_plan = function()
+  return M._current_plan
+end
+
 -- Mark the current plan as complete
 M.mark_complete = function()
   if M._current_plan then
@@ -671,8 +676,10 @@ M.mark_complete = function()
 end
 
 -- Execute a plan
-M.execute_plan = function()
-  local plan = M.get_current_plan()
+M.execute_plan = function(plan)
+  -- Use provided plan or get current plan
+  plan = plan or M.get_current_plan()
+  
   if not plan or not plan.steps then
     vim.notify("No plan to execute", vim.log.levels.WARN)
     return
@@ -732,7 +739,7 @@ Please provide the code changes needed for this step.
         if response then
           vim.schedule(function()
             -- Apply the changes
-            local success = edit.apply_patch(response, {
+            local success = edit.apply_patch(0, response, {
               validate = true,
               preview = false,  -- Don't preview during automated execution
             })

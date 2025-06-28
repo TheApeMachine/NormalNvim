@@ -382,4 +382,50 @@ function M.insert_at_cursor(text, opts)
   return true, nil
 end
 
+-- Apply a patch to content (exposed for multifile operations)
+M._apply_patch_to_content = function(content, patch)
+  -- Simple line-based patching
+  local lines = vim.split(content, "\n")
+  local result = {}
+  local i = 1
+  
+  for line in patch:gmatch("[^\n]+") do
+    if line:match("^@@") then
+      -- Parse hunk header: @@ -start,count +start,count @@
+      local old_start, old_count, new_start, new_count = 
+        line:match("^@@ %-(%d+),(%d+) %+(%d+),(%d+) @@")
+      
+      if old_start then
+        old_start = tonumber(old_start)
+        old_count = tonumber(old_count)
+        
+        -- Copy lines before the hunk
+        while i < old_start do
+          table.insert(result, lines[i])
+          i = i + 1
+        end
+        
+        -- Skip old lines
+        i = i + old_count
+      end
+    elseif line:match("^%+") then
+      -- Add new line
+      table.insert(result, line:sub(2))
+    elseif line:match("^%-") then
+      -- Remove line (already skipped)
+    elseif line:match("^ ") then
+      -- Context line
+      table.insert(result, line:sub(2))
+    end
+  end
+  
+  -- Copy remaining lines
+  while i <= #lines do
+    table.insert(result, lines[i])
+    i = i + 1
+  end
+  
+  return table.concat(result, "\n")
+end
+
 return M 

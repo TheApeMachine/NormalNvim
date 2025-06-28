@@ -599,10 +599,12 @@ M.request_conversation = function(messages, opts, callback)
   
   -- Use streaming if requested
   if opts.stream then
-    -- For streaming, we need both on_chunk and on_complete handlers
-    local on_chunk = callback
+    -- For streaming, we need to wrap the single callback into two separate handlers
+    local on_chunk = function(chunk)
+      callback(chunk, false) -- Not complete yet
+    end
     local on_complete = function(result, err)
-      -- Signal completion
+      -- Signal completion with nil chunk and true for is_complete
       callback(nil, true)
     end
     

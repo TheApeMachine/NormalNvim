@@ -90,10 +90,10 @@ function M.setup(opts)
     end,
   })
   
-  -- Initialize sub-modules
-  M.embeddings.setup()
-  M.intelligence.setup()
-  M.consistency.setup()
+  -- Initialize sub-modules that have setup functions
+  if M.consistency.setup then
+    M.consistency.setup()
+  end
   
   -- Create WhichKey mappings
   local ok, which_key = pcall(require, 'which-key')

@@ -289,7 +289,7 @@ M._send_message = function()
           
           -- When all searches complete, continue with message
           if pending_searches == 0 then
-            M._send_message_with_context(cleaned_message, contexts, search_results)
+            M._send_message_with_context(cleaned_message, contexts, search_results, message)
           end
         end,
       })
@@ -298,12 +298,12 @@ M._send_message = function()
   
   -- If no web searches, send immediately
   if pending_searches == 0 then
-    M._send_message_with_context(cleaned_message, contexts, {})
+    M._send_message_with_context(cleaned_message, contexts, {}, message)
   end
 end
 
 -- Helper to send message after web searches complete
-M._send_message_with_context = function(cleaned_message, contexts, search_results)
+M._send_message_with_context = function(cleaned_message, contexts, search_results, original_message)
   -- Build full prompt with contexts
   local full_content = cleaned_message
   if #contexts > 0 then
@@ -327,7 +327,7 @@ M._send_message_with_context = function(cleaned_message, contexts, search_result
   -- Add to history (store original message for display)
   table.insert(M._chat_state.history, {
     role = "user",
-    content = message, -- Original message with @commands
+    content = original_message, -- Original message with @commands
     full_content = full_content, -- Full content for API
   })
   

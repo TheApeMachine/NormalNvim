@@ -1,0 +1,673 @@
+-- AI Assistant Commands
+-- User-facing commands for all AI features
+
+local M = {}
+
+-- Setup all commands
+function M.setup()
+  local context = require("ai.context")
+  local llm = require("ai.llm")
+  local edit = require("ai.edit")
+  local refactor = require("ai.refactor")
+  local search = require("ai.search")
+  local config = require("ai.config")
+  
+  -- Completion command
+  vim.api.nvim_create_user_command("AIComplete", function(args)
+    local instruction = args.args
+    
+    -- If no instruction provided, ask for one
+    if instruction == "" then
+      vim.ui.input({
+        prompt = "AI Complete: What would you like me to do? ",
+        default = "Complete the code at cursor",
+      }, function(input)
+        if input and input ~= "" then
+          M._do_completion(input)
+        end
+      end)
+    else
+      M._do_completion(instruction)
+    end
+  end, {
+    desc = "AI: Complete code at cursor",
+    nargs = "?",
+  })
+  
+  -- Helper function for completion
+  function M._do_completion(instruction)
+    -- Check if this might be a complex task that needs planning
+    local complex_indicators = {
+      "implement", "create", "add feature", "refactor entire", 
+      "restructure", "integrate", "migrate", "convert"
+    }
+    
+    local is_complex = false
+    local lower_instruction = instruction:lower()
+    for _, indicator in ipairs(complex_indicators) do
+      if lower_instruction:find(indicator) then
+        is_complex = true
+        break
+      end
+    end
+    
+    if is_complex then
+      vim.notify("This looks like a complex task. Consider using :AIPlan for better results.", vim.log.levels.WARN)
+      -- Ask if they want to use the planner instead
+      vim.ui.select({"Use Planner", "Continue with Completion"}, {
+        prompt = "This task might benefit from planning first:",
+      }, function(choice)
+        if choice == "Use Planner" then
+          local planner = require("ai.planner")
+          planner.interactive_planning_session(instruction)
+          return
+        else
+          M._do_simple_completion(instruction)
+        end
+      end)
+    else
+      M._do_simple_completion(instruction)
+    end
+  end
+  
+  function M._do_simple_completion(instruction)
+    -- Show what we're doing
+    vim.notify("AI: Extracting context...", vim.log.levels.INFO)
+    
+    -- Use completion-specific context
+    local context_str = context.build_completion_context()
+    if not context_str or context_str == "" then
+      vim.notify("Failed to extract context", vim.log.levels.WARN)
+      return
+    end
+    
+    local prompt = llm.build_completion_prompt(context_str, instruction)
+    
+    vim.notify("AI: Generating completion for: " .. instruction, vim.log.levels.INFO)
+    
+    llm.request(prompt, {}, function(result, err)
+      if err then
+        vim.schedule(function()
+          vim.notify("Completion failed: " .. err, vim.log.levels.ERROR)
+        end)
+        return
+      end
+      
+      -- Check if we should show a preview first
+      vim.schedule(function()
+        local lines = vim.split(result, "\n")
+        
+        -- For small completions, just insert with validation
+        if #lines <= 3 then
+          local success, err = edit.insert_at_cursor(result)
+          if success then
+            vim.notify("AI: Completion inserted", vim.log.levels.INFO)
+          else
+            vim.notify("AI: Completion failed - " .. err, vim.log.levels.ERROR)
+            -- Show the completion in a window so user can see what was attempted
+            M._show_result_window(result, "Failed Completion (Syntax Error)")
+          end
+        else
+          -- For larger completions, show preview
+          local cursor_line = vim.fn.line(".") - 1
+          edit.show_diff_preview(0, 
+            cursor_line, 
+            cursor_line, 
+            result, 
+            function()
+              local success, err = edit.insert_at_cursor(result)
+              if success then
+                vim.notify("AI: Completion applied", vim.log.levels.INFO)
+              else
+                vim.notify("AI: Completion failed - " .. err, vim.log.levels.ERROR)
+              end
+            end
+          )
+        end
+      end)
+    end)
+  end
+  
+  -- Explain command
+  vim.api.nvim_create_user_command("AIExplain", function(args)
+    local mode = vim.fn.mode()
+    local content
+    
+    if mode == "v" or mode == "V" then
+      -- Get visual selection
+      local start_pos = vim.fn.getpos("'<")
+      local end_pos = vim.fn.getpos("'>")
+      local lines = vim.api.nvim_buf_get_lines(
+        0, start_pos[2] - 1, end_pos[2], false
+      )
+      content = table.concat(lines, "\n")
+    else
+      -- Get current context
+      local ctx = context.collect()
+      if ctx then
+        content = ctx.content
+      end
+    end
+    
+    if not content then
+      vim.notify("No code to explain", vim.log.levels.WARN)
+      return
+    end
+    
+    local question = args.args ~= "" and args.args or nil
+    local prompt = llm.build_explanation_prompt(content, question)
+    
+    llm.request(prompt, {}, function(result, err)
+      if err then
+        vim.notify("Explanation failed: " .. err, vim.log.levels.ERROR)
+        return
+      end
+      
+      -- Show in floating window
+      M._show_result_window(result, "AI Explanation")
+    end)
+  end, {
+    desc = "AI: Explain code",
+    nargs = "?",
+    range = true,
+  })
+  
+  -- Refactoring commands
+  vim.api.nvim_create_user_command("AIRefactor", function(args)
+    if args.args == "" then
+      vim.notify("Please provide refactoring instruction", vim.log.levels.WARN)
+      return
+    end
+    
+    refactor.refactor_with_instruction(args.args)
+  end, {
+    desc = "AI: Refactor with custom instruction",
+    nargs = "+",
+    range = true,
+  })
+  
+  vim.api.nvim_create_user_command("AIRename", function(args)
+    if args.args == "" then
+      vim.notify("Usage: :AIRename <new_name>", vim.log.levels.ERROR)
+      return
+    end
+    
+    refactor.rename_symbol(args.args)
+  end, {
+    desc = "AI: Rename symbol",
+    nargs = 1,
+  })
+  
+  vim.api.nvim_create_user_command("AIExtractFunction", function()
+    refactor.extract_function()
+  end, {
+    desc = "AI: Extract function from selection",
+    range = true,
+  })
+  
+  vim.api.nvim_create_user_command("AISimplifyLogic", function()
+    refactor.simplify_conditional()
+  end, {
+    desc = "AI: Simplify conditional logic",
+  })
+  
+  vim.api.nvim_create_user_command("AIAddTypes", function()
+    refactor.add_type_annotations()
+  end, {
+    desc = "AI: Add type annotations",
+  })
+  
+  vim.api.nvim_create_user_command("AIOrganizeImports", function()
+    refactor.organize_imports()
+  end, {
+    desc = "AI: Organize imports",
+  })
+  
+  -- Search commands
+  vim.api.nvim_create_user_command("AISearch", function(args)
+    if args.args == "" then
+      vim.notify("Usage: :AISearch <query>", vim.log.levels.ERROR)
+      return
+    end
+    
+    local results = search.search(args.args)
+    M._show_search_results(results, args.args)
+  end, {
+    desc = "AI: Search codebase",
+    nargs = "+",
+  })
+  
+  vim.api.nvim_create_user_command("AIFindDefinition", function(args)
+    local symbol = args.args
+    if symbol == "" then
+      -- Get symbol under cursor
+      local node = require("nvim-treesitter.ts_utils").get_node_at_cursor()
+      if node and node:type() == "identifier" then
+        symbol = context.get_node_text(node)
+      end
+    end
+    
+    if symbol == "" then
+      vim.notify("No symbol specified", vim.log.levels.WARN)
+      return
+    end
+    
+    local definition = search.find_definition(symbol)
+    if definition then
+      M._jump_to_location(definition)
+    else
+      vim.notify("Definition not found for: " .. symbol, vim.log.levels.WARN)
+    end
+  end, {
+    desc = "AI: Find definition",
+    nargs = "?",
+  })
+  
+  vim.api.nvim_create_user_command("AIFindReferences", function(args)
+    local symbol = args.args
+    if symbol == "" then
+      -- Get symbol under cursor
+      local node = require("nvim-treesitter.ts_utils").get_node_at_cursor()
+      if node and node:type() == "identifier" then
+        symbol = context.get_node_text(node)
+      end
+    end
+    
+    if symbol == "" then
+      vim.notify("No symbol specified", vim.log.levels.WARN)
+      return
+    end
+    
+    local references = search.find_references(symbol)
+    M._show_search_results(references, "References to: " .. symbol)
+  end, {
+    desc = "AI: Find references",
+    nargs = "?",
+  })
+  
+  -- Index management
+  vim.api.nvim_create_user_command("AIIndexWorkspace", function()
+    search.index_workspace()
+  end, {
+    desc = "AI: Index workspace",
+  })
+  
+  vim.api.nvim_create_user_command("AIIndexStats", function()
+    local stats = search.get_stats()
+    vim.notify(string.format(
+      "AI Index: %d files, %d nodes%s",
+      stats.files,
+      stats.nodes,
+      stats.indexing and " (indexing...)" or ""
+    ))
+  end, {
+    desc = "AI: Show index statistics",
+  })
+  
+  -- Edit commands
+  vim.api.nvim_create_user_command("AIUndo", function(args)
+    local steps = tonumber(args.args) or 1
+    edit.rollback(steps)
+    vim.notify(string.format("Rolled back %d edit(s)", steps))
+  end, {
+    desc = "AI: Undo AI edits",
+    nargs = "?",
+  })
+  
+  -- Configuration commands
+  vim.api.nvim_create_user_command("AISetProvider", function(args)
+    if args.args == "" then
+      vim.notify("Current provider: " .. config.get().provider)
+      return
+    end
+    
+    config.update("provider", args.args)
+    vim.notify("AI provider set to: " .. args.args)
+  end, {
+    desc = "AI: Set LLM provider",
+    nargs = "?",
+    complete = function()
+      return { "openai", "anthropic", "ollama" }
+    end,
+  })
+  
+  vim.api.nvim_create_user_command("AISetModel", function(args)
+    if args.args == "" then
+      local provider = config.get().provider
+      local model = config.get().api[provider].model
+      vim.notify("Current model: " .. model)
+      return
+    end
+    
+    local provider = config.get().provider
+    config.update("api." .. provider .. ".model", args.args)
+    vim.notify("Model set to: " .. args.args)
+  end, {
+    desc = "AI: Set LLM model",
+    nargs = "?",
+  })
+  
+  -- Debug commands
+  vim.api.nvim_create_user_command("AIDebugContext", function()
+    local ctx = context.collect({
+      include_parent = true,
+      include_siblings = true,
+    })
+    
+    if not ctx then
+      vim.notify("No context available", vim.log.levels.WARN)
+      return
+    end
+    
+    local info = vim.inspect(ctx)
+    M._show_result_window(info, "AI Context Debug")
+  end, {
+    desc = "AI: Debug context extraction",
+  })
+  
+  vim.api.nvim_create_user_command("AIClearCache", function()
+    llm.clear_cache()
+    context.clear_cache()
+    vim.notify("AI caches cleared")
+  end, {
+    desc = "AI: Clear all caches",
+  })
+  
+  -- Test command
+  vim.api.nvim_create_user_command("AITest", function()
+    vim.notify("AI: Running system test...", vim.log.levels.INFO)
+    
+    -- Test 1: Check configuration
+    local config_ok = pcall(require, "ai.config")
+    if not config_ok then
+      vim.notify("❌ Configuration module failed", vim.log.levels.ERROR)
+      return
+    end
+    vim.notify("✓ Configuration loaded", vim.log.levels.INFO)
+    
+    -- Test 2: Check API key
+    local provider = config.get().provider
+    local api_key = nil
+    if provider == "openai" then
+      api_key = config.get().api.openai.api_key
+    elseif provider == "anthropic" then
+      api_key = config.get().api.anthropic.api_key
+    end
+    
+    if not api_key or api_key == "" then
+      vim.notify("❌ No API key found for " .. provider, vim.log.levels.ERROR)
+      vim.notify("Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable", vim.log.levels.WARN)
+      return
+    end
+    vim.notify("✓ API key configured for " .. provider, vim.log.levels.INFO)
+    
+    -- Test 3: Simple LLM request
+    vim.notify("Testing LLM connection...", vim.log.levels.INFO)
+    
+    local test_prompt = {
+      {
+        role = "system",
+        content = "You are a helpful assistant testing the AI system."
+      },
+      {
+        role = "user",
+        content = "Please confirm the AI system is working"
+      }
+    }
+    
+    -- Use structured output with JSON schema for OpenAI
+    local test_opts = { temperature = 0 }
+    
+    if config.get().provider == "openai" then
+      test_opts.response_format = {
+        type = "json_schema",
+        json_schema = {
+          name = "system_test",
+          strict = true,
+          schema = {
+            type = "object",
+            properties = {
+              status = { 
+                type = "string",
+                enum = { "ok", "error" }
+              },
+              message = { type = "string" }
+            },
+            required = { "status", "message" },
+            additionalProperties = false
+          }
+        }
+      }
+    else
+      -- For non-OpenAI providers, we need to prompt
+      test_prompt[1].content = test_prompt[1].content .. ' Return JSON with status="ok" and message="AI system working".'
+    end
+    
+    llm.request(test_prompt, test_opts, function(result, err)
+      vim.schedule(function()
+        if err then
+          vim.notify("❌ LLM request failed: " .. err, vim.log.levels.ERROR)
+          return
+        end
+        
+        local ok, parsed = pcall(vim.json.decode, result)
+        if ok and parsed.status == "ok" then
+          vim.notify("✓ LLM connection successful", vim.log.levels.INFO)
+          vim.notify("✓ JSON parsing working", vim.log.levels.INFO)
+          vim.notify("🎉 AI system is fully operational!", vim.log.levels.INFO)
+        else
+          vim.notify("❌ LLM returned invalid response", vim.log.levels.ERROR)
+          M._show_result_window(result, "LLM Test Response")
+        end
+      end)
+    end)
+  end, {
+    desc = "AI: Test setup",
+  })
+  
+  -- Inline completion (ghost text style)
+  vim.api.nvim_create_user_command("AIInlineComplete", function()
+    -- Get context
+    local context_str = context.build_completion_context()
+    if not context_str or context_str == "" then
+      return
+    end
+    
+    -- Simple prompt for inline completion
+    local prompt = llm.build_completion_prompt(context_str, "Complete the current line or statement")
+    
+    llm.request(prompt, { temperature = 0.1 }, function(result, err)
+      if err or not result then
+        return
+      end
+      
+      vim.schedule(function()
+        -- Show as virtual text (ghost text)
+        local lines = vim.split(result, "\n")
+        local first_line = lines[1] or ""
+        
+        -- Create a namespace for our virtual text
+        local ns = vim.api.nvim_create_namespace("ai_inline_completion")
+        
+        -- Clear previous virtual text
+        vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+        
+        -- Add virtual text at cursor
+        local row = vim.fn.line(".") - 1
+        vim.api.nvim_buf_set_extmark(0, ns, row, -1, {
+          virt_text = {{first_line, "Comment"}},
+          virt_text_pos = "inline",
+        })
+        
+        -- Store the completion for accepting
+        vim.b.ai_inline_completion = result
+        
+        -- Show hint
+        vim.notify("Press <Tab> to accept, <Esc> to dismiss", vim.log.levels.INFO)
+      end)
+    end)
+  end, {
+    desc = "AI: Show inline completion",
+  })
+  
+  -- Accept inline completion
+  vim.api.nvim_create_user_command("AIAcceptInline", function()
+    if vim.b.ai_inline_completion then
+      local success, err = edit.insert_at_cursor(vim.b.ai_inline_completion)
+      if success then
+        -- Clear the virtual text
+        local ns = vim.api.nvim_create_namespace("ai_inline_completion")
+        vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+        vim.b.ai_inline_completion = nil
+      else
+        vim.notify("Failed to accept completion: " .. err, vim.log.levels.ERROR)
+      end
+    end
+  end, {
+    desc = "AI: Accept inline completion",
+  })
+  
+  -- Clear inline completion
+  vim.api.nvim_create_user_command("AIClearInline", function()
+    local ns = vim.api.nvim_create_namespace("ai_inline_completion")
+    vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+    vim.b.ai_inline_completion = nil
+  end, {
+    desc = "AI: Clear inline completion",
+  })
+  
+  -- Planning commands
+  vim.api.nvim_create_user_command("AIPlan", function(opts)
+    planner.create_plan(opts.args)
+  end, { nargs = '?', desc = 'Create an implementation plan' })
+  
+  vim.api.nvim_create_user_command('AIExecutePlan', function()
+    planner.execute_plan()
+  end, { desc = 'Execute the current plan' })
+  
+  vim.api.nvim_create_user_command('AIShowPlan', function()
+    planner.show_current_plan()
+  end, { desc = 'Show current plan' })
+  
+  vim.api.nvim_create_user_command("AIAnalyzeProject", function()
+    local planner = require("ai.planner")
+    vim.notify("AI: Analyzing project structure...", vim.log.levels.INFO)
+    
+    planner.analyze_project_structure(function(result, err)
+      if err then
+        vim.schedule(function()
+          vim.notify("Failed to analyze project: " .. err, vim.log.levels.ERROR)
+        end)
+        return
+      end
+      
+      vim.schedule(function()
+        -- First, try to parse as JSON
+        local ok, analysis = pcall(vim.json.decode, result)
+        if ok and type(analysis) == "table" then
+          -- Update project plan
+          planner._project_plan.architecture = analysis
+          planner.save_project_plan()
+          vim.notify("AI: Project analysis complete!", vim.log.levels.INFO)
+          
+          -- Show results
+          M._show_result_window(vim.json.encode(analysis), "Project Analysis")
+        else
+          -- If not valid JSON, show the raw response
+          vim.notify("AI: Analysis returned non-JSON response", vim.log.levels.WARN)
+          M._show_result_window(result, "Project Analysis (Raw Response)")
+          
+          -- Try to extract useful information anyway
+          local lines = vim.split(result, "\n")
+          local extracted = {
+            raw_analysis = result,
+            timestamp = os.date("%Y-%m-%d %H:%M:%S"),
+            note = "Analysis was not in expected JSON format"
+          }
+          
+          -- Save what we can
+          planner._project_plan.architecture = extracted
+          planner.save_project_plan()
+        end
+      end)
+    end)
+  end, {
+    desc = "AI: Analyze project structure",
+  })
+  
+  vim.api.nvim_create_user_command("AILearnPatterns", function()
+    local planner = require("ai.planner")
+    planner.learn_from_codebase()
+  end, {
+    desc = "AI: Learn from codebase patterns",
+  })
+end
+
+-- Show results in a floating window
+function M._show_result_window(content, title)
+  -- Create buffer
+  local buf = vim.api.nvim_create_buf(false, true)
+  local lines = vim.split(content, "\n")
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_option(buf, "modifiable", false)
+  vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+  
+  -- Detect filetype for syntax highlighting
+  if content:match("```") then
+    vim.api.nvim_buf_set_option(buf, "filetype", "markdown")
+  end
+  
+  -- Calculate window size
+  local width = math.min(80, math.floor(vim.o.columns * 0.8))
+  local height = math.min(#lines, math.floor(vim.o.lines * 0.8))
+  
+  -- Create window
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    col = math.floor((vim.o.columns - width) / 2),
+    row = math.floor((vim.o.lines - height) / 2),
+    style = "minimal",
+    border = "rounded",
+    title = " " .. title .. " ",
+    title_pos = "center",
+  })
+  
+  -- Set up keymaps
+  vim.api.nvim_buf_set_keymap(buf, "n", "q", ":close<CR>", { silent = true })
+  vim.api.nvim_buf_set_keymap(buf, "n", "<Esc>", ":close<CR>", { silent = true })
+end
+
+-- Show search results in quickfix
+function M._show_search_results(results, title)
+  if #results == 0 then
+    vim.notify("No results found", vim.log.levels.INFO)
+    return
+  end
+  
+  local qf_items = {}
+  for _, result in ipairs(results) do
+    table.insert(qf_items, {
+      filename = result.filepath,
+      lnum = result.range.start_row + 1,
+      col = result.range.start_col + 1,
+      text = string.format("[%s] %s", result.type, result.name or ""),
+    })
+  end
+  
+  vim.fn.setqflist(qf_items)
+  vim.fn.setqflist({}, "a", { title = title })
+  vim.cmd("copen")
+end
+
+-- Jump to a location
+function M._jump_to_location(location)
+  vim.cmd("edit " .. location.filepath)
+  vim.api.nvim_win_set_cursor(0, {
+    location.range.start_row + 1,
+    location.range.start_col
+  })
+end
+
+return M 

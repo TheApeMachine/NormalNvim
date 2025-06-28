@@ -23,6 +23,7 @@
 --       -> neural                         [chatgpt code generator]
 --       -> copilot                        [github code suggestions]
 --       -> guess-indent                   [guess-indent]
+--       -> ai-assistant                   [tree-sitter powered AI coding]
 
 --       ## COMPILER
 --       -> compiler.nvim                  [compiler]
@@ -41,6 +42,65 @@
 local is_windows = vim.fn.has('win32') == 1 -- true if on windows
 
 return {
+    {
+    "yetone/avante.nvim",
+    event = "VeryLazy",
+    version = false, -- Never set this value to "*"! Never!
+    opts = {
+        -- add any opts here
+        -- for example
+        provider = "openai",
+        openai = {
+        endpoint = "https://api.openai.com/v1",
+        model = "gpt-4o", -- your desired model (or use gpt-4o, etc.)
+        timeout = 30000, -- Timeout in milliseconds, increase this for reasoning models
+        temperature = 0,
+        max_completion_tokens = 8192, -- Increase this to include reasoning tokens (for reasoning models)
+        --reasoning_effort = "medium", -- low|medium|high, only used for reasoning models
+        },
+    },
+    -- if you want to build from source then do `make BUILD_FROM_SOURCE=true`
+    build = "make",
+    -- build = "powershell -ExecutionPolicy Bypass -File Build.ps1 -BuildFromSource false" -- for windows
+    dependencies = {
+        "nvim-treesitter/nvim-treesitter",
+        "stevearc/dressing.nvim",
+        "nvim-lua/plenary.nvim",
+        "MunifTanjim/nui.nvim",
+        --- The below dependencies are optional,
+        "echasnovski/mini.pick", -- for file_selector provider mini.pick
+        "nvim-telescope/telescope.nvim", -- for file_selector provider telescope
+        "hrsh7th/nvim-cmp", -- autocompletion for avante commands and mentions
+        "ibhagwan/fzf-lua", -- for file_selector provider fzf
+        "nvim-tree/nvim-web-devicons", -- or echasnovski/mini.icons
+        "zbirenbaum/copilot.lua", -- for providers='copilot'
+        {
+        -- support for image pasting
+        "HakonHarnes/img-clip.nvim",
+        event = "VeryLazy",
+        opts = {
+            -- recommended settings
+            default = {
+            embed_image_as_base64 = false,
+            prompt_for_file_name = false,
+            drag_and_drop = {
+                insert_mode = true,
+            },
+            -- required for Windows users
+            use_absolute_path = true,
+            },
+        },
+        },
+        {
+        -- Make sure to set this up properly if you have lazy=true
+        'MeanderingProgrammer/render-markdown.nvim',
+        opts = {
+            file_types = { "markdown", "Avante" },
+        },
+        ft = { "markdown", "Avante" },
+        },
+    },
+  },
   --  SNIPPETS ----------------------------------------------------------------
   --  Vim Snippets engine  [snippet engine] + [snippet templates]
   --  https://github.com/L3MON4D3/LuaSnip
@@ -912,5 +972,91 @@ return {
       })
     end,
   },
+  {
+  "joshuavial/aider.nvim",
+  opts = {
+    -- your configuration comes here
+    -- if you don't want to use the default settings
+    auto_manage_context = true, -- automatically manage buffer context
+    default_bindings = true,    -- use default <leader>A keybindings
+    debug = false,              -- enable debug logging
+  },
+},
+
+-- Tree-sitter powered AI Assistant [tree-sitter powered AI coding]
+-- Custom AI assistant that uses Tree-sitter for intelligent context extraction
+{
+  dir = vim.fn.stdpath("config") .. "/lua/ai",
+  name = "ai-assistant",
+  event = "VeryLazy",
+  dependencies = {
+    "nvim-treesitter/nvim-treesitter",
+    "nvim-lua/plenary.nvim",
+  },
+  config = function()
+    local ai = require("ai")
+    ai.setup({
+      -- Add any custom configuration here
+    })
+    
+    -- Register WhichKey mappings
+    local wk = require("which-key")
+    wk.add({
+      -- AI Assistant group
+      { "<leader>a", group = "AI Assistant", icon = "🤖" },
+      
+      -- Completion submenu
+      { "<leader>ac", "<cmd>AIComplete<cr>", desc = "Complete with prompt", icon = "✏️" },
+      { "<leader>ai", "<cmd>AIInlineComplete<cr>", desc = "Inline complete", mode = "i", icon = "💡" },
+      
+      -- Explain
+      { "<leader>ae", "<cmd>AIExplain<cr>", desc = "Explain code", mode = { "n", "v" }, icon = "📖" },
+      
+      -- Refactoring submenu
+      { "<leader>ar", group = "Refactor", icon = "🔧" },
+      { "<leader>arr", ":AIRefactor ", desc = "Refactor (custom)", mode = { "n", "v" } },
+      { "<leader>arf", "<cmd>AIExtractFunction<cr>", desc = "Extract function", mode = "v" },
+      { "<leader>ars", "<cmd>AISimplifyLogic<cr>", desc = "Simplify logic" },
+      { "<leader>art", "<cmd>AIAddTypes<cr>", desc = "Add types" },
+      { "<leader>aro", "<cmd>AIOrganizeImports<cr>", desc = "Organize imports" },
+      { "<leader>arR", ":AIRename ", desc = "Rename symbol" },
+      
+      -- Search submenu
+      { "<leader>a/", ":AISearch ", desc = "Search semantically", icon = "🔍" },
+      { "<leader>ad", "<cmd>AIFindDefinition<cr>", desc = "Find definition", icon = "📍" },
+      { "<leader>aD", "<cmd>AIFindReferences<cr>", desc = "Find references", icon = "🔗" },
+      
+      -- Planning submenu
+      { "<leader>ap", group = "Planning", icon = "📋" },
+      { "<leader>app", "<cmd>AIPlan<cr>", desc = "Create plan" },
+      { "<leader>ape", "<cmd>AIExecutePlan<cr>", desc = "Execute plan" },
+      { "<leader>apP", "<cmd>AIShowPlan<cr>", desc = "Show current plan" },
+      { "<leader>apA", "<cmd>AIAnalyzeProject<cr>", desc = "Analyze project" },
+      { "<leader>apL", "<cmd>AILearnPatterns<cr>", desc = "Learn patterns" },
+      
+      -- Utilities
+      { "<leader>au", "<cmd>AIUndo<cr>", desc = "Undo last AI edit", icon = "↩️" },
+      { "<leader>aI", "<cmd>AIIndexWorkspace<cr>", desc = "Index workspace", icon = "🗂️" },
+      { "<leader>aT", "<cmd>AITest<cr>", desc = "Test AI setup", icon = "🧪" },
+    })
+    
+    -- Register Tab/Esc mappings for inline completion
+    vim.keymap.set("i", "<Tab>", function()
+      if vim.b.ai_inline_completion then
+        vim.cmd("AIAcceptInline")
+        return ""
+      else
+        return "<Tab>"
+      end
+    end, { expr = true, desc = "Accept AI completion" })
+    
+    vim.keymap.set("i", "<Esc>", function()
+      if vim.b.ai_inline_completion then
+        vim.cmd("AIClearInline")
+      end
+      return "<Esc>"
+    end, { expr = true, desc = "Clear AI completion" })
+  end,
+},
 
 } -- end of return
